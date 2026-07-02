@@ -282,14 +282,30 @@ $("#btnDark").onclick = ()=>{
 };
 $("#burger").onclick = ()=> $("#sidebar").classList.toggle("open");
 
+/* Hiện lỗi RÕ RÀNG ngay trên màn đăng nhập, thay vì âm thầm đá ra (dễ soi lỗi) */
+function bootError(msg){
+  const el = $("#authScreen"); el.hidden = false;
+  let box = document.getElementById("bootErr");
+  if(!box){ box = document.createElement("div"); box.id = "bootErr";
+    box.style.cssText = "max-width:380px;margin:12px auto 0;padding:10px 14px;border-radius:10px;background:var(--redbg);color:var(--red);font-size:12.5px;line-height:1.5;white-space:pre-wrap;text-align:left";
+    (el.querySelector(".authcard")||el).insertAdjacentElement("afterend", box); }
+  box.textContent = "⚠ " + msg;
+}
 async function boot(){
-  const { data:{ session } } = await db.auth.getSession();
+  let session = null;
+  try{ session = (await db.auth.getSession()).data.session; }
+  catch(e){ return bootError("Không kết nối được máy chủ: " + (e.message||e)); }
   if(!session){ $("#authScreen").hidden = false; return; }
   S.user = session.user;
-  const { data: me, error } = await db.from("profiles").select("*").eq("id", S.user.id).single();
-  if(error || !me){ fail(error||{message:"Không đọc được hồ sơ"}); $("#authScreen").hidden=false; return; }
+  const { data: me, error } = await db.from("profiles").select("*").eq("id", S.user.id).maybeSingle();
+  if(error){ return bootError("Không đọc được hồ sơ ("+(error.code||"?")+"): "+(error.message||error)
+    + "\nNếu là 'infinite recursion' -> chạy lại supabase-setup.sql. Nếu 'column ... does not exist' -> DB thiếu cột, cũng chạy lại setup."); }
+  if(!me){ return bootError("Tài khoản đăng nhập được nhưng CHƯA có hồ sơ trong bảng profiles. Chạy SQL tạo hồ sơ (xem HUONG-DAN mục 'tạo admin')."); }
   S.me = me;
-  if(!me.approved || !me.active){ $("#pendingScreen").hidden = false; return; }
+  /* active/approved: chỉ chặn khi = false RÕ RÀNG. undefined (DB thiếu cột) -> KHÔNG khoá,
+     tránh kẹt vĩnh viễn trên DB cũ thiếu cột 'approved'. */
+  if(me.active === false){ $("#pendingScreen").hidden = false; return; }
+  if(me.approved === false){ $("#pendingScreen").hidden = false; return; }
   $("#appShell").hidden = false;
   $("#userChip").textContent = me.full_name + " · " + (ROLE_VI[me.role]||me.role);
   try{ await loadAll(); }catch(e){ fail(e); }

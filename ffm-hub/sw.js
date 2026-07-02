@@ -7,7 +7,7 @@
    - Supabase (đăng nhập, đọc/ghi đơn) và mọi request khác: KHÔNG can thiệp -> đi thẳng ra
      mạng như bình thường (dữ liệu không bao giờ bị cache sai). */
 
-const VERSION = "rsa-ffm-v1.2";
+const VERSION = "rsa-ffm-v1.3";
 const SHELL = [
   "./",
   "./index.html",
