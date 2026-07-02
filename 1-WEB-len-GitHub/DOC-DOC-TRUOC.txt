@@ -1,0 +1,25 @@
+==========================================================
+ FOLDER NÀY = CÁC FILE WEB (đưa lên GitHub → Vercel)
+==========================================================
+
+MỤC TIÊU: đưa TẤT CẢ file trong folder này lên GitHub, để Vercel chạy web.
+
+CÁCH LÀM CHO SẠCH (khuyên dùng — hết lỗi lồng thư mục):
+1. Vào repo GitHub của bạn.
+2. Xoá HẾT nội dung cũ trong repo (cả thư mục 'ffm-hub' lẫn file index.html lẻ) —
+   để repo trống hẳn.
+3. Add file → Upload files → mở folder này (1-WEB-len-GitHub) →
+   BÔI ĐEN TẤT CẢ FILE bên trong (Ctrl+A) → kéo thả vào GitHub.
+   *** Kéo CÁC FILE, KHÔNG kéo cả thư mục *** (để file nằm ở GỐC repo).
+4. Commit.
+
+TRÊN VERCEL:
+- Vì file nằm ở GỐC repo → Settings → Build & Deployment → Root Directory ĐỂ TRỐNG.
+- Deployments → Redeploy.
+
+SAU ĐÓ: mở link Vercel → bấm Ctrl+Shift+R (tải lại bỏ cache).
+
+DANH SÁCH FILE (11 file, phải đủ):
+ index.html  sw.js  manifest.webmanifest  vercel.json  robots.txt
+ icon-192.png  icon-512.png  icon-maskable-512.png
+ apple-touch-icon.png  favicon.png  favicon.svg
