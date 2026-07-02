@@ -1,0 +1,12 @@
+{
+  "name": "rsa-ffm-hub",
+  "version": "1.1.0",
+  "private": true,
+  "description": "RSA FFM Hub — web quản lý đơn & fulfillment POD (1 file HTML + Supabase, PWA).",
+  "scripts": {
+    "dev": "npx --yes serve . -l 3000",
+    "start": "npx --yes serve . -l 3000"
+  },
+  "keywords": ["ffm", "fulfillment", "pod", "supabase", "pwa"],
+  "license": "UNLICENSED"
+}
