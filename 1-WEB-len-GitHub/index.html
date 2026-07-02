@@ -202,6 +202,7 @@ const S = {
   page: 1, perPage: 100,
   filters: { q:"", seller:"", factory:"", status:"", multi:false, special:"", dateFrom:"", dateTo:"", account:"", sort:"date", sortDir:"desc" },
   view: "dash",
+  period: { mode:"all", from:"", to:"" },   /* bộ lọc thời gian dùng chung */
 };
 const maps = { profile:{}, factory:{}, template:{}, sellAcc:{}, order:{} };
 
@@ -490,12 +491,13 @@ function go(v){
     push:renderPush, finance:renderFinance, catalog:renderCatalog, alerts:renderAlerts,
     users:renderUsers, log:renderLog, profile:renderProfile };
   (R[v]||renderDash)();
+  wirePeriod();
   $("#main").scrollTop = 0; window.scrollTo(0,0);
 }
 async function reloadData(){ try{ await loadAll(); buildNav(); go(S.view); }catch(e){ fail(e); } }
 /* ================= TỔNG QUAN ================= */
 function renderDash(){
-  const rows = S.rows.filter(r=>r.it);
+  const rows = S.rows.filter(r=>r.it && inPeriod(r.o.order_date));
   const active = rows.filter(r=>!["delivered","synced","cancelled"].includes(r.it.item_status));
   const newToday = S.orders.filter(o=>o.order_date===today()).length;
   const waitSeller = active.filter(r=>{ const c=readyChecks(r.o,r.it); return !(c.label&&c.design&&c.tracking) && !["ordered","in_production","has_tracking"].includes(r.it.item_status); }).length;
@@ -530,6 +532,7 @@ function renderDash(){
   <div class="spread mb"><div><h1>Tổng quan</h1><p class="sub">Xin chào ${esc(S.me.full_name)} 👋 · ${fmtD(today())}</p></div>
     <div class="flex"><button class="btn" onclick="exportOrdersCsv()">⇩ Xuất Excel</button>
     <button class="btn" onclick="reloadData()">↻ Tải lại</button></div></div>
+  ${periodBar()}
   <div class="kpis">
     <div class="kpi" onclick="go('orders')"><div class="n">${newToday}</div><div class="t">Đơn mới hôm nay</div></div>
     <div class="kpi" onclick="goFilter({special:'lack'})"><div class="n" style="color:var(--yellow)">${waitSeller}</div><div class="t">SP chờ Seller (thiếu điều kiện)</div></div>
@@ -628,8 +631,7 @@ function filteredRows(){
     if(f.status && (it?.item_status||"")!==f.status) return false;
     if(f.multi && !r.multi) return false;
     if(f.account && (o.selling_account_id||"")!==f.account) return false;
-    if(f.dateFrom && (!o.order_date || o.order_date < f.dateFrom)) return false;
-    if(f.dateTo && (!o.order_date || o.order_date > f.dateTo)) return false;
+    if(!inPeriod(o.order_date)) return false;
     if(f.special==="late"){ const _s=slaInfo(it); if(!(_s && _s.diff<0)) return false; }
     else if(f.special==="ready"){ if(!isReadyToPush(o,it)) return false; }
     else if(f.special==="lack"){ const _c=it?readyChecks(o,it):null;
@@ -661,6 +663,40 @@ function sortRows(rows){
     return r.o.order_date||""; };
   return rows.slice().sort((a,b)=>{ const ka=key(a),kb=key(b); return ka<kb?-dir:ka>kb?dir:0; });
 }
+/* ===== BỘ LỌC THỜI GIAN DÙNG CHUNG ===== */
+function periodBounds(mode){
+  mode = mode || S.period.mode;
+  const d=new Date(), z=n=>String(n).padStart(2,"0"), iso=x=>`${x.getFullYear()}-${z(x.getMonth()+1)}-${z(x.getDate())}`;
+  const t=iso(d);
+  if(mode==="all") return {from:"",to:""};
+  if(mode==="custom") return {from:S.period.from||"", to:S.period.to||""};
+  if(mode==="day") return {from:t,to:t};
+  if(mode==="week"){ const dow=(d.getDay()+6)%7, m=new Date(d); m.setDate(d.getDate()-dow); return {from:iso(m),to:t}; }
+  if(mode==="month") return {from:iso(new Date(d.getFullYear(),d.getMonth(),1)), to:t};
+  if(mode==="year") return {from:d.getFullYear()+"-01-01", to:t};
+  return {from:"",to:""};
+}
+function inPeriod(ds){ const b=periodBounds(); if(!b.from&&!b.to) return true; if(!ds) return false;
+  ds=String(ds).slice(0,10); if(b.from && ds<b.from) return false; if(b.to && ds>b.to) return false; return true; }
+function periodBar(){
+  const p=S.period, b=periodBounds();
+  const btn=(m,l)=>`<button class="btn btn-sm ${p.mode===m?"btn-p":""}" onclick="setPeriod('${m}')">${l}</button>`;
+  return `<div class="card mb"><div class="flex" style="gap:6px;flex-wrap:wrap;align-items:center">
+    <span class="small muted">🗓️ Kỳ:</span>
+    ${btn("all","Tất cả")}${btn("day","Hôm nay")}${btn("week","Tuần này")}${btn("month","Tháng này")}${btn("year","Năm nay")}
+    <span class="small muted" style="margin-left:10px">Tùy chọn:</span>
+    <input id="pFrom" type="date" value="${p.mode==="custom"?esc(p.from):(b.from||"")}" style="width:auto">
+    <span class="small muted">→</span>
+    <input id="pTo" type="date" value="${p.mode==="custom"?esc(p.to):(b.to||"")}" style="width:auto">
+    ${p.mode!=="all"?`<span class="badge b-blue">${b.from||"…"} → ${b.to||"…"}</span>`:""}
+  </div></div>`;
+}
+function setPeriod(m){ S.period.mode=m; S.page=1; go(S.view); }
+function wirePeriod(){
+  const f=$("#pFrom"), t=$("#pTo");
+  if(f) f.onchange=e=>{ S.period.mode="custom"; S.period.from=e.target.value; S.page=1; go(S.view); };
+  if(t) t.onchange=e=>{ S.period.mode="custom"; S.period.to=e.target.value; S.page=1; go(S.view); };
+}
 function renderOrders(){
   const sellers = [...new Set(S.rows.map(r=>sellerName(r.o)))].filter(x=>x!=="—").sort();
   const rows = sortRows(filteredRows());
@@ -673,6 +709,7 @@ function renderOrders(){
   <div class="spread mb"><div><h1>Đơn hàng</h1>
     <p class="sub">${rows.length} dòng sản phẩm · ${new Set(rows.map(r=>r.o.id)).size} đơn · bấm Order ID để xem & sửa chi tiết</p></div>
     <div class="flex"><button class="btn" onclick="exportOrdersCsv()">⇩ Xuất Excel</button></div></div>
+  ${periodBar()}
   <div class="card mb"><div class="flex">
     <input id="fQ" placeholder="🔍 Order ID / khách / note / color / tracking..." style="flex:1;min-width:220px" value="${esc(f.q)}">
     <select id="fSeller"><option value="">Tất cả seller</option>${sellers.map(s=>`<option ${f.seller===s?"selected":""}>${esc(s)}</option>`).join("")}</select>
@@ -682,8 +719,6 @@ function renderOrders(){
     <button class="btn btn-sm" onclick="S.filters={q:'',seller:'',factory:'',status:'',multi:false,special:'',dateFrom:'',dateTo:'',account:'',sort:'date',sortDir:'desc'};S.page=1;renderOrders()">Xóa lọc</button>
   </div>
   <div class="flex mt" style="gap:8px;flex-wrap:wrap">
-    <label class="small muted" style="margin:0">Từ <input id="fFrom" type="date" value="${f.dateFrom}" style="width:auto"></label>
-    <label class="small muted" style="margin:0">đến <input id="fTo" type="date" value="${f.dateTo}" style="width:auto"></label>
     <select id="fAcc"><option value="">Tất cả TK bán</option>${S.sellAccs.map(a=>`<option value="${a.id}" ${f.account===a.id?"selected":""}>${esc(a.name)}</option>`).join("")}</select>
     <select id="fSort"><option value="date" ${f.sort==="date"?"selected":""}>Sắp xếp: Ngày</option><option value="sla" ${f.sort==="sla"?"selected":""}>Sắp xếp: SLA</option><option value="cost" ${f.sort==="cost"?"selected":""}>Sắp xếp: Chi phí</option></select>
     <button class="btn btn-sm" onclick="S.filters.sortDir=S.filters.sortDir==='asc'?'desc':'asc';renderOrders()">${f.sortDir==="asc"?"↑ Tăng dần":"↓ Giảm dần"}</button>
@@ -738,8 +773,6 @@ function renderOrders(){
   $("#fFactory").onchange = e=>{ S.filters.factory=e.target.value; S.page=1; renderOrders(); };
   $("#fStatus").onchange = e=>{ S.filters.status=e.target.value; S.page=1; renderOrders(); };
   $("#fMulti").onchange = e=>{ S.filters.multi=e.target.checked; S.page=1; renderOrders(); };
-  $("#fFrom").onchange = e=>{ S.filters.dateFrom=e.target.value; S.page=1; renderOrders(); };
-  $("#fTo").onchange   = e=>{ S.filters.dateTo=e.target.value; S.page=1; renderOrders(); };
   $("#fAcc").onchange  = e=>{ S.filters.account=e.target.value; S.page=1; renderOrders(); };
   $("#fSort").onchange = e=>{ S.filters.sort=e.target.value; renderOrders(); };
   $$("#view .cpy").forEach(el=> el.onclick = ()=> copyText(el.getAttribute("data-copy")));
