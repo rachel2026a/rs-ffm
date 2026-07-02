@@ -136,6 +136,7 @@ tr:hover td{background:var(--panel2)}
       <input id="liEmail" type="email" placeholder="Email">
       <input id="liPass" type="password" placeholder="Mật khẩu">
       <button id="btnLogin" class="btn btn-p">Đăng nhập</button>
+      <div id="liErr" style="color:var(--red);font-size:12.5px;margin-top:8px;text-align:left;line-height:1.4"></div>
     </div>
     <div id="formReg" hidden>
       <input id="rgName" placeholder="Họ tên (vd: Nguyễn Thị Hằng)">
@@ -254,9 +255,18 @@ $("#tabReg").onclick   = ()=>{ $("#tabReg").classList.add("on"); $("#tabLogin").
 
 $("#btnLogin").onclick = async ()=>{
   const email = $("#liEmail").value.trim(), password = $("#liPass").value;
-  if(!email || !password) return toast("Nhập email và mật khẩu", true);
+  const eb = $("#liErr"); if(eb) eb.textContent = "";
+  if(!email || !password){ if(eb) eb.textContent = "⚠ Nhập email và mật khẩu."; return; }
+  const btn = $("#btnLogin"); btn.disabled = true; const _t = btn.textContent; btn.textContent = "Đang đăng nhập…";
   const { error } = await db.auth.signInWithPassword({ email, password });
-  if(error) return fail(error);
+  btn.disabled = false; btn.textContent = _t;
+  if(error){
+    let m = error.message || String(error);
+    if(/invalid login credentials/i.test(m)) m = "Sai email hoặc mật khẩu.";
+    else if(/email not confirmed/i.test(m)) m = "Email chưa được xác nhận.";
+    if(eb) eb.textContent = "⚠ " + m; else fail(error);
+    return;
+  }
   location.reload();
 };
 $("#liPass").addEventListener("keydown", e=>{ if(e.key==="Enter") $("#btnLogin").click(); });
@@ -1868,8 +1878,10 @@ boot();
 </script>
 <script>
 /* Đăng ký PWA service worker — bọc try/catch để không ảnh hưởng app nếu SW lỗi. */
+/* TẠM TẮT service worker: gỡ mọi SW đang chạy + xoá cache để không phục vụ bản cũ. */
 if("serviceWorker" in navigator){
-  addEventListener("load", ()=>{ navigator.serviceWorker.register("sw.js").catch(e=>console.warn("SW:", e)); });
+  navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())).catch(()=>{});
+  if(self.caches && caches.keys) caches.keys().then(ks=>ks.forEach(k=>caches.delete(k))).catch(()=>{});
 }
 </script>
 </body>
