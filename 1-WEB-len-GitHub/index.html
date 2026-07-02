@@ -93,10 +93,19 @@ tr:hover td{background:var(--panel2)}
 #main{flex:1;padding:20px 24px;min-width:0}
 #burger{display:none;position:fixed;top:10px;left:10px;z-index:60;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:16px}
 @media(max-width:860px){
-  #sidebar{position:fixed;z-index:50;margin-left:-230px}
-  #sidebar.open{margin-left:0}
+  #sidebar{position:fixed;z-index:50;margin-left:-230px;width:78vw;max-width:300px}
+  #sidebar.open{margin-left:0;box-shadow:0 0 0 100vmax rgba(0,0,0,.35)}
   #burger{display:block}
-  #main{padding:52px 12px 20px}
+  #main{padding:56px 10px 24px}
+  /* nút & mục menu to hơn cho dễ chạm */
+  #nav .item{padding:12px 12px;font-size:14px}
+  .btn{padding:9px 14px}
+  .btn-sm{padding:7px 11px}
+  .kpis{grid-template-columns:repeat(2,1fr)}
+  h1{font-size:19px}
+  /* bảng: cuộn ngang mượt trên cảm ứng */
+  .tw{-webkit-overflow-scrolling:touch}
+  input,select,textarea{font-size:16px}   /* iOS không tự phóng to khi gõ */
 }
 /* ---------- auth ---------- */
 .authwrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
@@ -191,7 +200,7 @@ const S = {
   balances: [],                    // v_factory_balance
   rows: [],                        // item-per-row đã join (bảng đơn hàng)
   page: 1, perPage: 100,
-  filters: { q:"", seller:"", factory:"", status:"", multi:false },
+  filters: { q:"", seller:"", factory:"", status:"", multi:false, special:"" },
   view: "dash",
 };
 const maps = { profile:{}, factory:{}, template:{}, sellAcc:{}, order:{} };
@@ -466,6 +475,11 @@ function buildNav(){
     let cnt = "";
     if(m.id==="alerts" && alerts.length) cnt = `<span class="cnt">${alerts.length}</span>`;
     if(m.id==="users" && pend) cnt = `<span class="cnt">${pend}</span>`;
+    if(m.id==="todo"){ const n=(S.rows||[]).filter(r=>{ if(!r.it) return false;
+      if(S.me.role==="seller" && r.o.seller_id!==S.me.id) return false;
+      const c=readyChecks(r.o,r.it);
+      return !["ordered","in_production","has_tracking","synced","delivered","cancelled","issue"].includes(r.it.item_status) && !(c.label&&c.design&&c.tracking); }).length;
+      if(n) cnt = `<span class="cnt">${n>99?"99+":n}</span>`; }
     return `<div class="item ${S.view===m.id?"active":""}" data-v="${m.id}">${m.icon} ${m.label}${cnt}</div>`;
   }).join("");
   $$("#nav .item").forEach(el=> el.onclick = ()=>{ go(el.dataset.v); $("#sidebar").classList.remove("open"); });
@@ -491,6 +505,16 @@ function renderDash(){
   const issues = rows.filter(r=>r.it.item_status==="issue").length;
   const alerts = buildAlerts();
 
+  /* biểu đồ đơn 14 ngày gần nhất */
+  const _days=[], _dmap={};
+  for(let i=13;i>=0;i--){ const d=new Date(); d.setDate(d.getDate()-i); const k=d.toISOString().slice(0,10); _days.push(k); _dmap[k]=0; }
+  for(const o of S.orders){ if(o.order_date && _dmap[o.order_date]!==undefined) _dmap[o.order_date]++; }
+  const _mx=Math.max(1,..._days.map(k=>_dmap[k])), _cw=580, _ch=150, _pad=26, _bw=(_cw-2*_pad)/14;
+  const _bars=_days.map((k,i)=>{ const v=_dmap[k], h=(_ch-46)*v/_mx, x=_pad+i*_bw, y=_ch-24-h;
+    return `<rect x="${(x+2).toFixed(1)}" y="${y.toFixed(1)}" width="${(_bw-4).toFixed(1)}" height="${Math.max(0,h).toFixed(1)}" rx="2" fill="var(--accent)"></rect>`
+      +`<text x="${(x+_bw/2).toFixed(1)}" y="${_ch-8}" font-size="8" fill="var(--muted)" text-anchor="middle">${k.slice(8)}/${k.slice(5,7)}</text>`
+      +(v?`<text x="${(x+_bw/2).toFixed(1)}" y="${(y-2).toFixed(1)}" font-size="9" fill="var(--text)" text-anchor="middle">${v}</text>`:""); }).join("");
+
   /* hàng chờ theo xưởng */
   const byF = {};
   for(const r of rows){
@@ -508,12 +532,14 @@ function renderDash(){
     <button class="btn" onclick="reloadData()">↻ Tải lại</button></div></div>
   <div class="kpis">
     <div class="kpi" onclick="go('orders')"><div class="n">${newToday}</div><div class="t">Đơn mới hôm nay</div></div>
-    <div class="kpi" onclick="go('todo')"><div class="n" style="color:var(--yellow)">${waitSeller}</div><div class="t">SP chờ Seller (thiếu điều kiện)</div></div>
-    <div class="kpi" onclick="go('push')"><div class="n" style="color:var(--blue)">${waitFFM}</div><div class="t">Chờ FFM đẩy xưởng</div></div>
-    <div class="kpi"><div class="n" style="color:var(--purple)">${inProd}</div><div class="t">Đang sản xuất</div></div>
-    <div class="kpi" onclick="go('alerts')"><div class="n" style="color:var(--red)">${late}</div><div class="t">Quá hạn SLA</div></div>
-    <div class="kpi"><div class="n" style="color:var(--red)">${issues}</div><div class="t">Sự cố</div></div>
+    <div class="kpi" onclick="goFilter({special:'lack'})"><div class="n" style="color:var(--yellow)">${waitSeller}</div><div class="t">SP chờ Seller (thiếu điều kiện)</div></div>
+    <div class="kpi" onclick="goFilter({special:'ready'})"><div class="n" style="color:var(--blue)">${waitFFM}</div><div class="t">Chờ FFM đẩy xưởng</div></div>
+    <div class="kpi" onclick="goFilter({status:'in_production'})"><div class="n" style="color:var(--purple)">${inProd}</div><div class="t">Đang sản xuất</div></div>
+    <div class="kpi" onclick="goFilter({special:'late'})"><div class="n" style="color:var(--red)">${late}</div><div class="t">Quá hạn SLA</div></div>
+    <div class="kpi" onclick="goFilter({special:'issue'})"><div class="n" style="color:var(--red)">${issues}</div><div class="t">Sự cố</div></div>
   </div>
+  <div class="card mb"><h3>📈 Đơn theo ngày (14 ngày gần nhất)</h3>
+    <svg viewBox="0 0 ${_cw} ${_ch}" style="width:100%;height:auto;max-height:190px" preserveAspectRatio="xMidYMid meet">${_bars}</svg></div>
   <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr))">
     <div class="card"><h3>🏭 Hàng chờ theo xưởng</h3>
       <table><tr><th>Xưởng</th><th class="right">Chờ đẩy</th><th class="right">Đang SX</th><th class="right">Có tracking</th><th class="right">Số dư</th></tr>
@@ -601,6 +627,12 @@ function filteredRows(){
     if(f.factory && (it?.factory_id||"")!==f.factory) return false;
     if(f.status && (it?.item_status||"")!==f.status) return false;
     if(f.multi && !r.multi) return false;
+    if(f.special==="late"){ const _s=slaInfo(it); if(!(_s && _s.diff<0)) return false; }
+    else if(f.special==="ready"){ if(!isReadyToPush(o,it)) return false; }
+    else if(f.special==="lack"){ const _c=it?readyChecks(o,it):null;
+      if(!(it && !["ordered","in_production","has_tracking","synced","delivered","cancelled","issue"].includes(it.item_status) && _c && !(_c.label&&_c.design&&_c.tracking))) return false; }
+    else if(f.special==="issue"){ if(it?.item_status!=="issue") return false; }
+    else if(f.special==="dup"){ if(!(S.dupOrders && S.dupOrders.has(o.id))) return false; }
     if(q){
       const hay = [o.platform_order_id, o.customer_name, o.customer_address, o.seller_note, o.buyer_note,
         o.tracking_number, it?.tracking_number, it?.color, it?.size, it?.factory_order_id, it?.product_title,
@@ -609,6 +641,10 @@ function filteredRows(){
     }
     return true;
   });
+}
+function goFilter(patch){
+  S.filters = Object.assign({q:"",seller:"",factory:"",status:"",multi:false,special:""}, patch||{});
+  S.page = 1; go("orders");
 }
 function renderOrders(){
   const sellers = [...new Set(S.rows.map(r=>sellerName(r.o)))].filter(x=>x!=="—").sort();
@@ -628,8 +664,16 @@ function renderOrders(){
     <select id="fFactory"><option value="">Tất cả xưởng</option>${S.factories.map(x=>`<option value="${x.id}" ${f.factory===x.id?"selected":""}>${esc(x.name)}</option>`).join("")}</select>
     <select id="fStatus"><option value="">Mọi trạng thái</option>${Object.entries(STATUS_VI).map(([k,v])=>`<option value="${k}" ${f.status===k?"selected":""}>${v}</option>`).join("")}</select>
     <label class="flex" style="margin:0"><input type="checkbox" id="fMulti" ${f.multi?"checked":""} style="width:auto"> Đơn nhiều SP</label>
-    <button class="btn btn-sm" onclick="S.filters={q:'',seller:'',factory:'',status:'',multi:false};S.page=1;renderOrders()">Xóa lọc</button>
+    <button class="btn btn-sm" onclick="S.filters={q:'',seller:'',factory:'',status:'',multi:false,special:''};S.page=1;renderOrders()">Xóa lọc</button>
   </div></div>
+  <div class="flex mb" style="gap:6px;flex-wrap:wrap">${(()=>{ const c=fn=>S.rows.filter(fn).length;
+    const chips=[["","Tất cả",S.rows.length],
+      ["late","🔴 Trễ SLA",c(r=>{const x=slaInfo(r.it);return x&&x.diff<0;})],
+      ["ready","🟢 Chờ đẩy xưởng",c(r=>isReadyToPush(r.o,r.it))],
+      ["lack","🟡 Thiếu điều kiện",c(r=>{const cc=r.it?readyChecks(r.o,r.it):null;return r.it&&!["ordered","in_production","has_tracking","synced","delivered","cancelled","issue"].includes(r.it.item_status)&&cc&&!(cc.label&&cc.design&&cc.tracking);})],
+      ["issue","⚠️ Sự cố",c(r=>r.it&&r.it.item_status==="issue")],
+      ["dup","👥 Trùng khách",c(r=>S.dupOrders&&S.dupOrders.has(r.o.id))]];
+    return chips.map(([k,label,n])=>`<button class="btn btn-sm ${(f.special||"")===k?"btn-p":""}" onclick="S.filters.special='${k}';S.page=1;renderOrders()">${label}${n?` <b>${n}</b>`:""}</button>`).join(""); })()}</div>
   <div class="tw"><table>
     <tr class="thgroup"><th colspan="4">📋 Thông tin đơn</th><th>👤 Khách</th><th colspan="4">👕 Sản phẩm</th><th colspan="2">🎨 Thiết kế</th><th colspan="6">🚚 Vận chuyển & tài chính</th></tr>
     <tr><th>Ngày</th><th>Order ID</th><th>TK bán</th><th>Seller</th><th>Khách hàng</th>
@@ -878,7 +922,7 @@ function renderNew(){
   $("#view").innerHTML = `
   <div class="spread mb"><div><h1>Nhập đơn <span class="badge b-blue">SHEET ĐƠN ĐANG ĐI</span></h1>
     <p class="sub">Bố cục cột giữ như Excel, cuộn ngang để nhập tiếp · Đã tự gán: Platform = <b>TTS</b>, Shipped by = <b>TikTok Shipping</b>, Seller = <b>${esc(S.me.full_name)}</b> · ô <span class="badge b-green">xanh</span> auto-fill từ Template</p></div>
-    <div class="flex"><button class="btn btn-p" onclick="saveNewRows()">💾 Lưu tất cả</button></div></div>
+    <div class="flex"><button class="btn" onclick="pasteImport()">📋 Dán từ Excel</button><button class="btn btn-p" onclick="saveNewRows()">💾 Lưu tất cả</button></div></div>
   <div class="tw" style="max-height:calc(100vh - 200px)"><table class="sheet">
     <tr class="thgroup"><th></th><th colspan="4">📋 Thông tin đơn hàng</th><th>👤 Khách</th><th colspan="8">👕 Thông tin sản phẩm</th><th colspan="4">🎨 Thiết kế sản phẩm</th><th></th><th></th></tr>
     <tr><th>#</th>
@@ -936,6 +980,26 @@ function renderNew(){
       el.addEventListener("input", e=> setVal(+e.target.dataset.i, e.target.dataset.k, e.target.value));
     }
   });
+}
+function pasteImport(){
+  openModal(`<div class="spread mb"><h2>Dán nhiều dòng từ Excel</h2><button class="btn btn-sm" onclick="closeModal()">✕</button></div>
+  <p class="small muted">Mỗi dòng = 1 sản phẩm. Cột cách nhau bằng <b>Tab</b> (copy thẳng từ Excel). Thứ tự:
+  <b>Order ID · Khách · Phôi/SKU · Size · Color · SL · Note</b>. Chỉ Order ID bắt buộc; thiếu cột nào để trống cột đó.</p>
+  <textarea id="pasteBox" rows="8" style="width:100%;font-family:monospace;font-size:12px" placeholder="57738...	Nguyen Van A	SKU-1	L	Red	1	ghi chú"></textarea>
+  <div class="flex mt"><button class="btn btn-p" onclick="applyPaste()">Thêm vào bảng</button><button class="btn" onclick="closeModal()">Hủy</button></div>`);
+}
+function applyPaste(){
+  const lines=($("#pasteBox").value||"").split(/\r?\n/).map(l=>l.replace(/\s+$/,"")).filter(l=>l.trim());
+  let added=0;
+  for(const line of lines){
+    const c=line.split("\t");
+    const oid=(c[0]||"").trim(); if(!oid) continue;
+    const r=blankRow();
+    r.order_id=oid; r.cust=(c[1]||"").trim(); r.sku=(c[2]||"").trim();
+    r.size=(c[3]||"").trim(); r.color=(c[4]||"").trim(); r.qty=Number(c[5])||1; r.note=(c[6]||"").trim();
+    NR.push(r); added++;
+  }
+  closeModal(); renderNew(); toast(added?`Đã thêm ${added} dòng.`:"Không có dòng hợp lệ (thiếu Order ID).", !added);
 }
 async function saveNewRows(){
   const rows = NR.filter(r=>r.order_id.trim());
