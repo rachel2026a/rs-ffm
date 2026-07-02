@@ -1,4 +1,0 @@
--- ⚠️ FILE NÀY KHÔNG CẦN DÙNG NỮA.
--- 'supabase-setup.sql' giờ đã idempotent: chạy trọn 1 file đó cho MỌI trường hợp
--- (project mới hay đã có sẵn bảng), chạy lại nhiều lần vẫn an toàn.
--- => Hãy mở 'supabase-setup.sql', copy toàn bộ, dán vào Supabase SQL Editor -> Run.
