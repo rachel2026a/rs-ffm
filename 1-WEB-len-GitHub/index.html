@@ -173,7 +173,7 @@ tr:hover td{background:var(--panel2)}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v1.8</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v2.0</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -793,7 +793,7 @@ function renderOrders(){
     <p class="sub">${rows.length} dòng sản phẩm · ${new Set(rows.map(r=>r.o.id)).size} đơn · bấm Order ID hoặc ✏️ để mở & sửa/cập nhật đơn</p></div>
     <div class="flex"><button class="btn btn-p" onclick="toggleNewPanel()">${S.showNew?"✕ Đóng thêm đơn":"＋ Thêm đơn mới"}</button><button class="btn" onclick="exportOrdersCsv()">⇩ Xuất Excel</button></div></div>
   ${periodBar()}
-  ${S.showNew?`<div class="card mb" style="border:2px solid #0284c7"><div class="spread mb"><div><h3 style="margin:0">＋ Thêm đơn mới</h3><span class="small muted">Nhập ở đây · copy thông tin từ danh sách đơn bên dưới nếu cần</span></div><div class="flex"><button class="btn" onclick="pasteImport()">📋 Dán từ Excel</button><button class="btn btn-p" onclick="saveNewRows()">💾 Lưu tất cả</button><button class="btn btn-sm" onclick="toggleNewPanel()">Thu gọn ▲</button></div></div>${newSheetHTML()}</div>`:""}
+  ${S.showNew?`<div class="card mb" style="border:2px solid #0284c7"><div class="spread mb"><div><h3 style="margin:0">＋ Thêm đơn mới</h3><span class="small muted">Nhập ở đây · copy thông tin từ danh sách đơn bên dưới nếu cần</span></div><div class="flex"><button class="btn" onclick="importTTS()">📥 Nạp Excel TTS</button><button class="btn" onclick="pasteImport()">📋 Dán tay</button><button class="btn btn-p" onclick="saveNewRows()">💾 Lưu tất cả</button><button class="btn btn-sm" onclick="toggleNewPanel()">Thu gọn ▲</button></div></div>${newSheetHTML()}</div>`:""}
   <div class="card mb"><div class="flex">
     <input id="fQ" placeholder="🔍 Order ID / khách / note / color / tracking..." style="flex:1;min-width:220px" value="${esc(f.q)}">
     <select id="fSeller"><option value="">Tất cả seller</option>${sellers.map(s=>`<option ${f.seller===s?"selected":""}>${esc(s)}</option>`).join("")}</select>
@@ -808,6 +808,7 @@ function renderOrders(){
     <select id="fSort"><option value="date" ${f.sort==="date"?"selected":""}>Sắp xếp: Ngày</option><option value="sla" ${f.sort==="sla"?"selected":""}>Sắp xếp: SLA</option><option value="cost" ${f.sort==="cost"?"selected":""}>Sắp xếp: Chi phí</option></select>
     <button class="btn btn-sm" onclick="S.filters.sortDir=S.filters.sortDir==='asc'?'desc':'asc';renderOrders()">${f.sortDir==="asc"?"↑ Tăng dần":"↓ Giảm dần"}</button>
     <button class="btn btn-sm" onclick="colMenu()">⚙ Cột</button>
+    <button class="btn btn-sm ${S.editMode?'btn-p':''}" onclick="S.editMode=!S.editMode;renderOrders()">✏️ Sửa nhanh</button>
   </div></div>
   ${batchBanner}
   <div class="flex mb" style="gap:6px;flex-wrap:wrap">${(()=>{ const c=fn=>S.rows.filter(fn).length;
@@ -820,11 +821,13 @@ function renderOrders(){
     return chips.map(([k,label,n])=>`<button class="btn btn-sm ${(f.special||"")===k?"btn-p":""}" onclick="S.filters.special='${k}';S.page=1;renderOrders()">${label}${n?` <b>${n}</b>`:""}</button>`).join(""); })()}</div>
   ${(()=>{ const vs=savedViews(); return `<div class="flex mb" style="gap:6px;flex-wrap:wrap;align-items:center"><span class="small muted">Bộ lọc đã lưu:</span>${vs.length?vs.map((v,i)=>`<span class="badge b-blue" style="cursor:pointer" onclick="applyView(${i})">${esc(v.name)} <a onclick="event.stopPropagation();delView(${i})" style="cursor:pointer" title="Xoá">✕</a></span>`).join(""):'<span class="small muted">chưa có</span>'}<button class="btn btn-sm" onclick="saveView()">💾 Lưu lọc hiện tại</button></div>`; })()}
   ${ocStyle()}
+  ${S.editMode?`<div class="card mb" style="border-left:3px solid #0284c7"><span class="small">✏️ <b>Sửa nhanh đang BẬT</b> — gõ thẳng vào ô, tự lưu ngay. Ô của 🔵 Seller / 🟢 FFM tự khoá theo quyền. Bấm lại nút để tắt.</span></div>`:""}
   <div class="tw"><table>
     <tr class="thgroup">${ocGroupHeader()}</tr>
     <tr>${ocSubHeader()}</tr>
     ${pageRows.map(r=>{
       const { o, it } = r; const sla = slaInfo(it); const c = it?readyChecks(o,it):null;
+      const em=S.editMode, dS=(canEditOrder(o)&&S.me.role!=="ffm")?"":"disabled", dF=isFFM()?"":"disabled", stO=x=>Object.entries(STATUS_VI).map(([k,v])=>`<option value="${k}" ${x===k?"selected":""}>${v}</option>`).join("");
       return `<tr>
       <td class="oc-date nowrap">${fmtD(o.order_date)}</td>
       <td class="oc-oid nowrap"><a href="#" onclick="openOrder('${o.id}');return false">${esc(o.platform_order_id)}</a> <span class="cpy" data-copy="${esc(o.platform_order_id)}" title="Copy Order ID" style="cursor:pointer">📋</span> <a href="#" onclick="openOrder('${o.id}');return false" title="Mở & sửa/cập nhật đơn" style="text-decoration:none">✏️</a>${r.multi?' <span class="badge b-purple" title="Đơn nhiều sản phẩm">⧉</span>':""}${S.dupOrders&&S.dupOrders.has(o.id)?' <span class="badge b-yellow" title="Trùng tên/địa chỉ khách với đơn khác">👥</span>':""}</td>
@@ -834,16 +837,16 @@ function renderOrders(){
       <td class="oc-prod"><span class="clip" style="max-width:220px" title="${esc(it?.product_title||"")}">${esc(itemLabel(it))}</span></td>
       <td class="oc-sku nowrap small">${it?.sku_phoi?`<span class="clip" style="max-width:90px" title="${esc(it.sku_phoi)}">${esc(it.sku_phoi)}</span> <span class="cpy" data-copy="${esc(it.sku_phoi)}" title="Copy SKU" style="cursor:pointer">📋</span>`:""}</td>
       <td class="oc-link nowrap">${it?.listing_link?`<a href="${esc(it.listing_link)}" target="_blank" title="${esc(it.listing_link)}">🔗</a> <span class="cpy" data-copy="${esc(it.listing_link)}" title="Copy link SP" style="cursor:pointer">📋</span>`:""}</td>
-      <td class="oc-size nowrap">${esc(it?.size||"")}</td><td class="oc-color nowrap">${esc(it?.color||"")}</td><td class="oc-sl center">${it?.quantity??""}</td>
-      <td class="oc-design center">${it?.design_link?`<a href="${esc(it.design_link)}" target="_blank">🔗</a>`:""}</td>
-      <td class="oc-conf center">${it? (it.confirm_design?'<span class="b-green badge">✓</span>':'<span class="muted">—</span>'):""}</td>
+      <td class="oc-size nowrap">${em&&it?`<input id="g_size_${it.id}" value="${esc(it.size||'')}" onchange="gridSave('${it.id}')" ${dS} style="width:52px">`:esc(it?.size||"")}</td><td class="oc-color nowrap">${em&&it?`<input id="g_color_${it.id}" value="${esc(it.color||'')}" onchange="gridSave('${it.id}')" ${dS} style="width:64px">`:esc(it?.color||"")}</td><td class="oc-sl center">${em&&it?`<input type="number" min="1" id="g_quantity_${it.id}" value="${it.quantity||1}" onchange="gridSave('${it.id}')" ${dS} style="width:46px">`:(it?.quantity??"")}</td>
+      <td class="oc-design center">${em&&it?`<input id="g_design_link_${it.id}" value="${esc(it.design_link||'')}" onchange="gridSave('${it.id}')" ${dS} placeholder="link" style="width:90px">`:(it?.design_link?`<a href="${esc(it.design_link)}" target="_blank">🔗</a>`:"")}</td>
+      <td class="oc-conf center">${em&&it?`<select id="g_confirm_design_${it.id}" onchange="gridSave('${it.id}')" ${dS} style="width:52px"><option value="0" ${!it.confirm_design?"selected":""}>—</option><option value="1" ${it.confirm_design?"selected":""}>✓</option></select>`:(it? (it.confirm_design?'<span class="b-green badge">✓</span>':'<span class="muted">—</span>'):"")}</td>
       <td class="oc-factory nowrap">${esc(it?.factory_id && maps.factory[it.factory_id]?.name || "")}</td>
-      <td class="oc-offm nowrap small">${esc(it?.factory_order_id||"")}</td>
-      <td class="oc-track nowrap">${(()=>{const tk=it?.tracking_number||o.tracking_number||"";return tk?`<span class="clip" style="max-width:110px" title="${esc(tk)}">${esc(tk)}</span> <span class="cpy" data-copy="${esc(tk)}" title="Copy tracking" style="cursor:pointer">📋</span>`:"";})()}</td>
-      <td class="oc-status">${it?`<span class="badge ${STATUS_BADGE[it.item_status]}">${STATUS_VI[it.item_status]}</span>`:""}
+      <td class="oc-offm nowrap small">${em&&it?`<input id="g_factory_order_id_${it.id}" value="${esc(it.factory_order_id||'')}" onchange="gridSave('${it.id}')" ${dF} style="width:100px">`:esc(it?.factory_order_id||"")}</td>
+      <td class="oc-track nowrap">${em&&it?`<input id="g_tracking_number_${it.id}" value="${esc(it.tracking_number||'')}" onchange="gridSave('${it.id}')" ${dF} style="width:120px">`:(()=>{const tk=it?.tracking_number||o.tracking_number||"";return tk?`<span class="clip" style="max-width:110px" title="${esc(tk)}">${esc(tk)}</span> <span class="cpy" data-copy="${esc(tk)}" title="Copy tracking" style="cursor:pointer">📋</span>`:"";})()}</td>
+      <td class="oc-status">${em&&it?`<select id="g_item_status_${it.id}" onchange="gridSave('${it.id}')" ${dF}>${stO(it.item_status)}</select>`:(it?`<span class="badge ${STATUS_BADGE[it.item_status]}">${STATUS_VI[it.item_status]}</span>`:"")}
         ${c&&!(c.label&&c.design&&c.tracking)?`<div class="small muted nowrap" title="Điều kiện đẩy xưởng">${c.label?"✅":"⬜"}L ${c.design?"✅":"⬜"}D ${c.tracking?"✅":"⬜"}T</div>`:""}</td>
       <td class="oc-sla nowrap ${sla?sla.cls:""}">${sla?sla.txt:""}</td>
-      <td class="oc-cost right nowrap">${it&&it.fulfillment_cost!=null?fmtMoney(it.fulfillment_cost,it.cost_currency):""}</td>
+      <td class="oc-cost right nowrap">${em&&it?`<input type="number" step="0.01" id="g_fulfillment_cost_${it.id}" value="${it.fulfillment_cost??''}" onchange="gridSave('${it.id}')" ${dF} style="width:72px">`:(it&&it.fulfillment_cost!=null?fmtMoney(it.fulfillment_cost,it.cost_currency):"")}</td>
       </tr>`;
     }).join("") || `<tr><td colspan="19" class="muted">Không có dòng nào khớp bộ lọc.</td></tr>`}
   </table></div>
@@ -1057,7 +1060,7 @@ async function claimCare(orderId){
    Theo góp ý seller: giữ thứ tự cột như sheet "Đơn đang đi"; Platform=TTS,
    Shipped by=TikTok Shipping, Seller Name = user đăng nhập -> ẨN, không phải điền. */
 let NR = []; // rows đang nhập
-function blankRow(){ return { order_id:"", date:today(), acc:"", label:"", cust:"", tmpl:"", ptype:"", fact:"", dim:"", sku:"", size:"", color:"", qty:1, listing:"", odesign:"", design:"", conf:"0", note:"" }; }
+function blankRow(){ return { order_id:"", date:today(), acc:"", label:"", cust:"", tmpl:"", ptype:"", fact:"", dim:"", sku:"", size:"", color:"", qty:1, listing:"", odesign:"", design:"", conf:"0", note:"", tracking:"" }; }
 function rowHasData(r){ return !!(r.order_id||r.cust||r.tmpl||r.size||r.color||r.design||r.label||r.sku); }
 function ensureBlank(){ while(NR.length<2 || rowHasData(NR[NR.length-1]) || rowHasData(NR[NR.length-2])){ const r=blankRow(); const prev=NR[NR.length-1]; if(prev){ r.date=prev.date; r.acc=prev.acc; r.accname=prev.accname; } NR.push(r); } }
 function copyRowDown(i){ if(i<=0)return; const p=NR[i-1],r=NR[i]; if(!p)return; r.date=p.date;r.acc=p.acc;r.accname=p.accname;r.tmpl=p.tmpl;r.tmplname=p.tmplname;r.ptype=p.ptype;r.fact=p.fact;r.dim=p.dim; rerenderNewHost(); }
@@ -1083,7 +1086,7 @@ function renderNew(){
   $("#view").innerHTML = `
   <div class="spread mb"><div><h1>＋ Thêm đơn mới <span class="badge b-blue">nhập nhanh dạng Excel</span></h1>
     <p class="sub">Bố cục cột giữ như Excel, cuộn ngang để nhập tiếp · Đã tự gán: Platform = <b>TTS</b>, Shipped by = <b>TikTok Shipping</b>, Seller = <b>${esc(S.me.full_name)}</b> · ô <span class="badge b-green">xanh</span> auto-fill từ Template</p></div>
-    <div class="flex"><button class="btn" onclick="go('orders')">← Về danh sách đơn</button><button class="btn" onclick="pasteImport()">📋 Dán từ Excel</button><button class="btn btn-p" onclick="saveNewRows()">💾 Lưu tất cả</button></div></div>
+    <div class="flex"><button class="btn" onclick="go('orders')">← Về danh sách đơn</button><button class="btn" onclick="importTTS()">📥 Nạp Excel TTS</button><button class="btn" onclick="pasteImport()">📋 Dán tay</button><button class="btn btn-p" onclick="saveNewRows()">💾 Lưu tất cả</button></div></div>
   ${newSheetHTML()}
   <p class="small muted mt">💡 Luôn sẵn 2 dòng trống cuối bảng — gõ gần hết tự sinh thêm, không cần bấm nút. Cùng 1 Order ID nhập nhiều dòng = đơn nhiều sản phẩm (tự gộp khi lưu). Order ID đã có trong hệ thống → sản phẩm được THÊM vào đơn cũ, không tạo trùng.</p>
   ${recentOrdersHTML()}`;
@@ -1109,14 +1112,14 @@ function newSheetHTML(){
   const dls = `<datalist id="dl_acc">${S.sellAccs.filter(a=>a.active!==false).map(a=>`<option value="${esc(a.name)}">`).join("")}</datalist>
   <datalist id="dl_tmpl">${S.templates.filter(t=>t.active!==false).map(t=>`<option value="${esc(tDisp(t))}">`).join("")}</datalist>`;
   return `${dls}<div class="tw" style="max-height:60vh"><table class="sheet">
-    <tr class="thgroup"><th></th><th colspan="4">📋 Thông tin đơn hàng</th><th>👤 Khách</th><th colspan="8">👕 Thông tin sản phẩm</th><th colspan="4">🎨 Thiết kế sản phẩm</th><th></th><th></th></tr>
+    <tr class="thgroup"><th></th><th colspan="4">📋 Thông tin đơn hàng</th><th>👤 Khách</th><th colspan="8">👕 Thông tin sản phẩm</th><th colspan="4">🎨 Thiết kế sản phẩm</th><th></th><th></th><th></th></tr>
     <tr><th>#</th>
     <th>Ngày Order</th><th style="min-width:150px">Order ID *</th><th style="min-width:85px">TK bán hàng</th><th style="min-width:130px">Link Label (TTS)</th>
     <th style="min-width:170px">Customer Info (Tên - SĐT - Địa chỉ)</th>
     <th style="min-width:210px">Template</th><th style="min-width:125px">Product Type ⚙</th><th style="min-width:85px">Nhà in/Xưởng ⚙</th><th style="min-width:85px">Dimension ⚙</th>
     <th style="min-width:85px">Phôi/SKU</th><th style="min-width:60px">Size</th><th style="min-width:70px">Color</th><th style="min-width:44px">SL</th>
     <th style="min-width:120px">Link sản phẩm</th><th style="min-width:95px">Order Design</th><th style="min-width:120px">File Design</th><th>Confirm</th>
-    <th style="min-width:100px">Seller Note</th><th></th></tr>
+    <th style="min-width:100px">Seller Note</th><th style="min-width:130px">🚚 Tracking (nếu có)</th><th></th></tr>
     ${NR.map((r,i)=>`<tr>
       <td class="muted center">${i+1}${i>0?`<br><button class="btn btn-sm" tabindex="-1" title="Chép Ngày/TK bán/Template từ dòng trên" onclick="copyRowDown(${i})" style="padding:0 5px;margin-top:2px">⤵</button>`:""}</td>
       <td><input data-i="${i}" data-k="date" type="date" value="${r.date}"></td>
@@ -1137,6 +1140,7 @@ function newSheetHTML(){
       <td><input data-i="${i}" data-k="design" value="${esc(r.design)}" placeholder="link drive…"></td>
       <td><select data-i="${i}" data-k="conf"><option value="0">—</option><option value="1" ${r.conf==="1"?"selected":""}>Done</option></select></td>
       <td><input data-i="${i}" data-k="note" value="${esc(r.note)}"></td>
+      <td class="nowrap"><input data-i="${i}" data-k="tracking" value="${esc(r.tracking||'')}" placeholder="mã vận đơn"></td>
       <td class="center"><button class="btn btn-sm btn-danger" tabindex="-1" onclick="NR.splice(${i},1);rerenderNewHost()">✕</button></td>
     </tr>`).join("")}
   </table></div>`;
@@ -1170,6 +1174,34 @@ function wireNewSheet(){
 function rerenderNewHost(){ if(S.view==='orders' && S.showNew) renderOrders(); else renderNew(); }
 function toggleNewPanel(){ S.showNew=!S.showNew; if(S.showNew && !NR.length) NR=[blankRow(),blankRow()]; renderOrders(); }
 
+function ttsDate(s){ s=(s||"").trim(); if(!s) return ""; const m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/); if(m) return `${m[3]}-${m[1].padStart(2,"0")}-${m[2].padStart(2,"0")}`; const d=new Date(s); return isNaN(d)?"":d.toISOString().slice(0,10); }
+function importTTS(){
+  if(typeof XLSX==="undefined"){ toast("Chưa tải được thư viện đọc Excel, thử lại sau vài giây.",true); return; }
+  const inp=document.createElement("input"); inp.type="file"; inp.accept=".xlsx,.xls";
+  inp.onchange=e=>{ const f=e.target.files[0]; if(!f) return; const rd=new FileReader();
+    rd.onload=ev=>{ try{
+      const wb=XLSX.read(ev.target.result,{type:"array"});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      const aoa=XLSX.utils.sheet_to_json(ws,{header:1,defval:""});
+      if(aoa.length<3){ toast("File không có dữ liệu.",true); return; }
+      const H=aoa[0].map(x=>String(x||"").trim().toLowerCase());
+      const idx=n=>H.indexOf(n.toLowerCase());
+      const ci={oid:idx("order id"),date:idx("created time"),qty:idx("quantity"),rec:idx("recipient"),ph:idx("phone #"),c:idx("country"),st:idx("state"),city:idx("city"),zip:idx("zipcode"),a1:idx("address line 1"),a2:idx("address line 2"),trk:idx("tracking id")};
+      if(ci.oid<0){ toast("Không thấy cột 'Order ID' — đây có phải file To Ship của TTS không?",true); return; }
+      const g=(row,i)=> (i>=0&&i<row.length)?String(row[i]==null?"":row[i]).trim():"";
+      let added=0, seen=0;
+      for(let r=2;r<aoa.length;r++){ const row=aoa[r]; const oid=g(row,ci.oid); if(!oid) continue; seen++;
+        const addr=[g(row,ci.a1),g(row,ci.a2),g(row,ci.city),g(row,ci.st),g(row,ci.zip),g(row,ci.c)].filter(Boolean).join(", ");
+        const cust=[g(row,ci.rec),g(row,ci.ph),addr].filter(Boolean).join(" - ");
+        const nr=blankRow(); nr.order_id=oid; nr.date=ttsDate(g(row,ci.date))||nr.date; nr.qty=Number(g(row,ci.qty))||1; nr.cust=cust; nr.tracking=g(row,ci.trk);
+        NR.push(nr); added++;
+      }
+      if(added){ ensureBlank(); rerenderNewHost(); toast(`Đã nạp ${added} dòng từ Excel TTS (Ngày·Order ID·Khách·SL·Tracking). Chọn Template rồi bấm 💾 Lưu.`); }
+      else toast("Không có dòng đơn hợp lệ trong file.",true);
+    }catch(err){ toast("Lỗi đọc Excel: "+(err.message||err),true); } };
+    rd.readAsArrayBuffer(f); };
+  inp.click();
+}
 function pasteImport(){
   openModal(`<div class="spread mb"><h2>Dán nhiều dòng từ Excel</h2><button class="btn btn-sm" onclick="closeModal()">✕</button></div>
   <p class="small muted">Mỗi dòng = 1 sản phẩm. Cột cách nhau bằng <b>Tab</b> (copy thẳng từ Excel). Thứ tự:
@@ -1219,8 +1251,9 @@ async function saveNewRows(){
         sku_phoi: r.sku||null, size: r.size||null, color: r.color||null, quantity: r.qty||1,
         listing_link: r.listing||null, order_design_code: r.odesign||null,
         design_link: r.design||null, confirm_design: r.conf==="1", note: r.note||null,
+        tracking_number: r.tracking||null,
         source_line: existing + j + 1,
-        item_status: r.conf==="1" ? "design_ok" : (r.design ? "waiting_design" : "new"),
+        item_status: r.tracking ? "has_tracking" : (r.conf==="1" ? "design_ok" : (r.design ? "waiting_design" : "new")),
       }));
       const { data: its, error: e2 } = await db.from("order_items").insert(payload).select();
       if(e2) throw e2;
