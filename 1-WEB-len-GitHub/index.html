@@ -173,7 +173,7 @@ tr:hover td{background:var(--panel2)}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v1.4</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v1.8</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -336,6 +336,30 @@ async function boot(){
   $("#userChip").textContent = me.full_name + " · " + (ROLE_VI[me.role]||me.role);
   try{ await loadAll(); }catch(e){ fail(e); }
   buildNav(); go(S.view);
+  realtimeInit();
+}
+/* ===== Realtime: 2 người cùng thấy cập nhật (cần bật publication trong Supabase) ===== */
+let _rtCh=null, _rtT=null, _rtPending=false;
+function editingNow(){ return S.view==="new" || S.view==="sheet" || (S.view==="orders" && S.showNew); }
+async function rtRefresh(){ try{ await loadAll(); buildNav(); go(S.view); }catch(e){} }
+function realtimeInit(){
+  if(_rtCh) return;
+  const hit = ()=>{ clearTimeout(_rtT); _rtT=setTimeout(()=>{
+    if(editingNow()){ if(!_rtPending){ _rtPending=true; toast("🔄 Có cập nhật mới từ người khác — bấm nút Tải lại khi xong."); showReloadChip(); } }
+    else rtRefresh();
+  }, 800); };
+  _rtCh = db.channel("ffm-rt")
+    .on("postgres_changes",{event:"*",schema:"public",table:"orders"}, hit)
+    .on("postgres_changes",{event:"*",schema:"public",table:"order_items"}, hit)
+    .on("postgres_changes",{event:"*",schema:"public",table:"tasks"}, hit)
+    .subscribe();
+}
+function showReloadChip(){
+  if(document.getElementById("rtChip")) return;
+  const c=document.createElement("button"); c.id="rtChip"; c.className="btn btn-p";
+  c.textContent="🔄 Có dữ liệu mới — Tải lại"; c.style.cssText="position:fixed;bottom:18px;right:18px;z-index:9999;box-shadow:0 4px 14px rgba(0,0,0,.25)";
+  c.onclick=async()=>{ c.remove(); _rtPending=false; await rtRefresh(); };
+  document.body.appendChild(c);
 }
 
 async function loadAll(){
@@ -420,18 +444,18 @@ function buildAlerts(){
     if(["delivered","synced","cancelled"].includes(it.item_status)) continue;
     const sla = slaInfo(it);
     if(sla && sla.diff < 0 && !["has_tracking"].includes(it.item_status))
-      A.push({ lv:3, icon:"🔴", msg:`Đơn ${o.platform_order_id} (${sellerName(o)}) TRỄ deadline ship ${-sla.diff} ngày — ${STATUS_VI[it.item_status]}`, view:"orders", q:o.platform_order_id, side:"both" });
+      A.push({ lv:3, icon:"🔴", msg:`Đơn ${o.platform_order_id} (${sellerName(o)}) TRỄ deadline ship ${-sla.diff} ngày — ${STATUS_VI[it.item_status]}`, view:"orders", q:o.platform_order_id, side:"both", sid:o.seller_id, sname:sellerName(o) });
     else if(sla && sla.diff <= 1 && !["ordered","in_production","has_tracking"].includes(it.item_status))
-      A.push({ lv:2, icon:"🟠", msg:`Đơn ${o.platform_order_id} (${sellerName(o)}) sắp tới deadline (${sla.txt}) mà chưa đẩy xưởng`, view:"orders", q:o.platform_order_id, side:"both" });
+      A.push({ lv:2, icon:"🟠", msg:`Đơn ${o.platform_order_id} (${sellerName(o)}) sắp tới deadline (${sla.txt}) mà chưa đẩy xưởng`, view:"orders", q:o.platform_order_id, side:"both", sid:o.seller_id, sname:sellerName(o) });
     const c = readyChecks(o,it);
     if(o.order_date && !["ordered","in_production","has_tracking"].includes(it.item_status)){
       const age = Math.floor((new Date() - new Date(o.order_date)) / 864e5);
       const miss = [!c.label&&"Label", !c.design&&"Confirm Design", !c.tracking&&"Tracking"].filter(Boolean);
       if(age >= 2 && miss.length)
-        A.push({ lv:2, icon:"🟡", msg:`Đơn ${o.platform_order_id} (${sellerName(o)}) đã ${age} ngày còn thiếu: ${miss.join(", ")}`, view:"orders", q:o.platform_order_id, side:"seller" });
+        A.push({ lv:2, icon:"🟡", msg:`Đơn ${o.platform_order_id} (${sellerName(o)}) đã ${age} ngày còn thiếu: ${miss.join(", ")}`, view:"orders", q:o.platform_order_id, side:"seller", sid:o.seller_id, sname:sellerName(o) });
     }
     if(isReadyToPush(o,it))
-      A.push({ lv:1, icon:"🟢", msg:`Đơn ${o.platform_order_id} đủ điều kiện — chờ FFM đẩy xưởng (${it.factory_id ? (maps.factory[it.factory_id]?.name||"?") : "chưa rõ xưởng"})`, view:"push", side:"ffm" });
+      A.push({ lv:1, icon:"🟢", msg:`Đơn ${o.platform_order_id} đủ điều kiện — chờ FFM đẩy xưởng (${it.factory_id ? (maps.factory[it.factory_id]?.name||"?") : "chưa rõ xưởng"})`, view:"push", side:"ffm", sid:o.seller_id, sname:sellerName(o) });
   }
   /* trùng khách giữa các đơn đang chạy */
   let dupShown = 0;
@@ -441,11 +465,11 @@ function buildAlerts(){
     const activeIds = new Set(S.rows.filter(r=>r.it && !["delivered","synced","cancelled"].includes(r.it.item_status)).map(r=>r.o.id));
     if(!os.some(o=>activeIds.has(o.id))) continue;
     dupShown++;
-    A.push({ lv:1, icon:"👥", msg:`Trùng khách "${os[0].customer_name||"?"}": ${os.length} đơn — kiểm tra gộp/tách đơn`, view:"orders", q:os[0].customer_name||"", side:"seller" });
+    A.push({ lv:1, icon:"👥", msg:`Trùng khách "${os[0].customer_name||"?"}": ${os.length} đơn — kiểm tra gộp/tách đơn`, view:"orders", q:os[0].customer_name||"", side:"seller", sid:os[0].seller_id, sname:sellerName(os[0]) });
   }
   for(const b of S.balances){
     if(Number(b.balance_usd) < 0)
-      A.push({ lv:3, icon:"💸", msg:`Xưởng ${b.name} ÂM số dư ${fmtUSD(b.balance_usd)} — cần topup`, view:"finance", side:"ffm" });
+      A.push({ lv:3, icon:"💸", msg:`Xưởng ${b.name} ÂM số dư ${fmtUSD(b.balance_usd)} — cần topup`, view:"finance", side:"ffm", sid:null, sname:"" });
   }
   return A.sort((a,b)=>b.lv-a.lv);
 }
@@ -569,18 +593,23 @@ function renderDash(){
 }
 
 /* ================= VIỆC HÔM NAY ================= */
+let todoSeller = "";
 function renderTodo(){
-  const mine = (r)=> S.me.role!=="seller" || r.o.seller_id===S.me.id;
+  const isSellerRole = S.me.role==="seller";
+  const mine = (r)=> !isSellerRole || r.o.seller_id===S.me.id;
   const rows = S.rows.filter(r=>r.it && mine(r));
-  const lack = rows.filter(r=>{ const c=readyChecks(r.o,r.it);
+  const lackAll = rows.filter(r=>{ const c=readyChecks(r.o,r.it);
     return !["ordered","in_production","has_tracking","synced","delivered","cancelled","issue"].includes(r.it.item_status) && !(c.label&&c.design&&c.tracking); });
+  const todoSellers = isSellerRole?[]:[...new Set(lackAll.map(r=>sellerName(r.o)).filter(x=>x&&x!=="—"))].sort();
+  if(todoSeller && !todoSellers.includes(todoSeller)) todoSeller="";
+  const lack = (!isSellerRole && todoSeller)? lackAll.filter(r=>sellerName(r.o)===todoSeller) : lackAll;
   const ready = S.rows.filter(r=>isReadyToPush(r.o,r.it));
   const negBal = S.balances.filter(b=>Number(b.balance_usd)<0);
   const pend = S.profiles.filter(p=>!p.approved);
   let html = `<h1>Việc hôm nay</h1><p class="sub">Gom đúng việc cần làm theo vai trò của bạn</p>`;
 
   if(S.me.role==="seller" || isAdmin()){
-    html += `<div class="card mb"><h3>🔵 ${S.me.role==="seller"?"VIỆC CỦA BẠN":"MỤC SELLER"} — đơn thiếu điều kiện (${lack.length})</h3>
+    html += `<div class="card mb"><h3>🔵 ${isSellerRole?"VIỆC CỦA BẠN":"MỤC SELLER"} — đơn thiếu điều kiện (${lack.length})${(!isSellerRole&&todoSellers.length)?`<select onchange="todoSeller=this.value;renderTodo()" style="margin-left:8px;font-size:13px;font-weight:400"><option value="">Tất cả seller</option>${todoSellers.map(x=>`<option ${todoSeller===x?"selected":""}>${esc(x)}</option>`).join("")}</select>`:""}</h3>
     <div class="tw" style="max-height:340px"><table><tr><th>Order ID</th><th>Seller</th><th>Sản phẩm</th><th>Thiếu</th><th>SLA</th></tr>
     ${lack.slice(0,200).map(r=>{ const c=readyChecks(r.o,r.it); const sla=slaInfo(r.it);
       const miss=[!c.label&&"Label",!c.design&&"Design",!c.tracking&&"Tracking"].filter(Boolean).join(", ");
@@ -606,16 +635,23 @@ function renderTodo(){
 
 /* ================= CẢNH BÁO ================= */
 let alertSide = "";
+let alertSeller = "";
 function renderAlerts(){
-  const all = buildAlerts();
-  const match = (a,side)=> !side || a.side===side || a.side==="both";
-  const alerts = all.filter(a=>match(a,alertSide));
-  const cnt = side=> all.filter(a=>match(a,side)).length;
+  let all = buildAlerts();
+  const isSeller = S.me.role==="seller";
+  if(isSeller) all = all.filter(a=>a.sid===S.me.id);   // seller chỉ thấy cảnh báo đơn của mình
+  const sellers = [...new Set(all.map(a=>a.sname).filter(Boolean))].sort();
+  if(alertSeller && !sellers.includes(alertSeller)) alertSeller="";
+  const match  = (a,side)=> !side || a.side===side || a.side==="both";
+  const matchS = a=> !alertSeller || a.sname===alertSeller;
+  const alerts = all.filter(a=>match(a,alertSide) && matchS(a));
+  const cnt = side=> all.filter(a=>match(a,side) && matchS(a)).length;
   const chip=(sd,l)=>`<button class="btn btn-sm ${alertSide===sd?"btn-p":""}" onclick="alertSide='${sd}';renderAlerts()">${l} <b>${cnt(sd)}</b></button>`;
+  const sellerSel = (!isSeller && sellers.length)?`<select onchange="alertSeller=this.value;renderAlerts()" style="margin-left:8px;font-size:13px"><option value="">Tất cả seller</option>${sellers.map(x=>`<option ${alertSeller===x?"selected":""}>${esc(x)}</option>`).join("")}</select>`:"";
   /* KHÔNG nhúng dữ liệu (tên khách/Order ID) vào chuỗi onclick: trong ngữ cảnh thuộc tính,
      browser giải mã &#39; lại thành ' -> thoát chuỗi -> XSS. Dùng data-i + listener. */
-  $("#view").innerHTML = `<h1>Cảnh báo</h1><p class="sub">Tự sinh từ dữ liệu · lọc theo bên phụ trách · ưu tiên cao xuống thấp</p>
-  <div class="flex mb" style="gap:6px;flex-wrap:wrap">${chip("","Tất cả")}${chip("seller","🔵 Seller")}${chip("ffm","🟢 FFM")}</div>
+  $("#view").innerHTML = `<h1>Cảnh báo</h1><p class="sub">Tự sinh từ dữ liệu · lọc theo bên phụ trách${isSeller?" · chỉ hiện đơn của bạn":" & theo từng seller"} · ưu tiên cao xuống thấp</p>
+  <div class="flex mb" style="gap:6px;flex-wrap:wrap;align-items:center">${chip("","Tất cả")}${chip("seller","🔵 Seller")}${chip("ffm","🟢 FFM")}${sellerSel}</div>
   ${alerts.map((a,i)=>`<div class="alertrow"><span>${a.icon}</span><span>${esc(a.msg)}
     ${a.q?` — <a href="#" class="alk" data-i="${i}">xem đơn</a>`:
       a.view&&a.view!=="orders"?` — <a href="#" class="alk" data-i="${i}">mở</a>`:""}</span></div>`).join("")
@@ -712,6 +748,29 @@ function wirePeriod(){
   if(f) f.onchange=e=>{ S.period.mode="custom"; S.period.from=e.target.value; S.page=1; go(S.view); };
   if(t) t.onchange=e=>{ S.period.mode="custom"; S.period.to=e.target.value; S.page=1; go(S.view); };
 }
+/* ---- Ẩn/hiện cột bảng Đơn hàng (nhớ trên máy) ---- */
+const OCOLS = [["date","Ngày","📋 Thông tin đơn"],["oid","Order ID","📋 Thông tin đơn"],["acc","TK bán","📋 Thông tin đơn"],["seller","Seller","📋 Thông tin đơn"],["cust","Khách hàng","👤 Khách"],["prod","Sản phẩm","👕 Sản phẩm"],["sku","SKU","👕 Sản phẩm"],["link","Link SP","👕 Sản phẩm"],["size","Size","👕 Sản phẩm"],["color","Color","👕 Sản phẩm"],["sl","SL","👕 Sản phẩm"],["design","Design","🎨 Thiết kế"],["conf","✓","🎨 Thiết kế"],["factory","Xưởng","🚚 Vận chuyển & tài chính"],["offm","Order FFM","🚚 Vận chuyển & tài chính"],["track","Tracking","🚚 Vận chuyển & tài chính"],["status","Trạng thái","🚚 Vận chuyển & tài chính"],["sla","SLA","🚚 Vận chuyển & tài chính"],["cost","Chi phí","🚚 Vận chuyển & tài chính"]];
+const OCORE = new Set(["oid","cust","prod","status"]);
+function ocHidden(){ if(!S.hideCols){ try{ S.hideCols=new Set(JSON.parse(localStorage.getItem("ffm_hidecols")||"[]")); }catch(e){ S.hideCols=new Set(); } } return S.hideCols; }
+function ocStyle(){ const h=[...ocHidden()]; return h.length?`<style>${h.map(k=>`.oc-${k}{display:none}`).join("")}</style>`:""; }
+function ocGroupHeader(){ const hid=ocHidden(); const g=[]; OCOLS.forEach(([k,,gr])=>{ if(hid.has(k))return; const last=g[g.length-1]; if(last&&last.g===gr)last.n++; else g.push({g:gr,n:1}); }); return g.map(x=>`<th colspan="${x.n}">${x.g}</th>`).join(""); }
+function ocSubHeader(){ const hid=ocHidden(); return OCOLS.map(([k,h])=>`<th class="oc-${k}${k==="cost"?" right":""}"${hid.has(k)?' style="display:none"':''}>${h}</th>`).join(""); }
+function colMenu(){ const hid=ocHidden(); openModal(`<div class="spread mb"><h2>Ẩn/hiện cột</h2><button class="btn btn-sm" onclick="closeModal()">✕</button></div>
+  <p class="small muted">Bỏ tick để ẩn cột cho gọn. Lựa chọn được nhớ trên máy này.</p>
+  <div style="columns:2;-webkit-columns:2;gap:20px">${OCOLS.map(([k,h])=>`<label class="flex" style="margin:5px 0"><input type="checkbox" ${hid.has(k)?"":"checked"} ${OCORE.has(k)?"disabled":""} onchange="toggleCol('${k}',this.checked)" style="width:auto"> ${esc(h)}${OCORE.has(k)?' <span class="small muted">(bắt buộc)</span>':""}</label>`).join("")}</div>
+  <div class="flex mt"><button class="btn" onclick="S.hideCols=new Set();localStorage.setItem('ffm_hidecols','[]');closeModal();renderOrders()">Hiện tất cả</button><button class="btn btn-p" onclick="closeModal()">Xong</button></div>`); }
+function toggleCol(k,show){ const h=ocHidden(); if(show)h.delete(k); else h.add(k); localStorage.setItem("ffm_hidecols",JSON.stringify([...h])); renderOrders(); }
+/* ---- Bộ lọc đã lưu ---- */
+function savedViews(){ try{return JSON.parse(localStorage.getItem("ffm_savedviews")||"[]");}catch(e){return [];} }
+function saveView(){ const name=(prompt("Đặt tên cho bộ lọc hiện tại:")||"").trim(); if(!name)return; const vs=savedViews(); const f={...S.filters}; delete f.batch; vs.push({name,f}); localStorage.setItem("ffm_savedviews",JSON.stringify(vs)); toast("Đã lưu bộ lọc."); renderOrders(); }
+function applyView(i){ const v=savedViews()[i]; if(!v)return; S.filters=Object.assign({q:"",seller:"",factory:"",status:"",multi:false,special:"",dateFrom:"",dateTo:"",account:"",sort:"date",sortDir:"desc",batch:null}, v.f); S.page=1; renderOrders(); }
+function delView(i){ const vs=savedViews(); vs.splice(i,1); localStorage.setItem("ffm_savedviews",JSON.stringify(vs)); renderOrders(); }
+/* ---- Phím tắt: Ctrl+S lưu đơn, Ctrl+K nhảy tới ô tìm ---- */
+if(typeof document!=="undefined" && !window._ffmKbd){ window._ffmKbd=1; document.addEventListener("keydown",e=>{
+  const k=(e.key||"").toLowerCase();
+  if((e.ctrlKey||e.metaKey)&&k==="s"){ if(S.view==="new"||(S.view==="orders"&&S.showNew)){ e.preventDefault(); saveNewRows(); } }
+  else if((e.ctrlKey||e.metaKey)&&k==="k"){ e.preventDefault(); if(S.view==="orders"){ const q=$("#fQ"); if(q)q.focus(); } else { go("orders"); setTimeout(()=>{const q=$("#fQ");if(q)q.focus();},60); } }
+}); }
 function renderOrders(){
   const sellers = [...new Set(S.rows.map(r=>sellerName(r.o)))].filter(x=>x!=="—").sort();
   const rows = sortRows(filteredRows());
@@ -748,6 +807,7 @@ function renderOrders(){
     <select id="fAcc"><option value="">Tất cả TK bán</option>${S.sellAccs.map(a=>`<option value="${a.id}" ${f.account===a.id?"selected":""}>${esc(a.name)}</option>`).join("")}</select>
     <select id="fSort"><option value="date" ${f.sort==="date"?"selected":""}>Sắp xếp: Ngày</option><option value="sla" ${f.sort==="sla"?"selected":""}>Sắp xếp: SLA</option><option value="cost" ${f.sort==="cost"?"selected":""}>Sắp xếp: Chi phí</option></select>
     <button class="btn btn-sm" onclick="S.filters.sortDir=S.filters.sortDir==='asc'?'desc':'asc';renderOrders()">${f.sortDir==="asc"?"↑ Tăng dần":"↓ Giảm dần"}</button>
+    <button class="btn btn-sm" onclick="colMenu()">⚙ Cột</button>
   </div></div>
   ${batchBanner}
   <div class="flex mb" style="gap:6px;flex-wrap:wrap">${(()=>{ const c=fn=>S.rows.filter(fn).length;
@@ -758,33 +818,34 @@ function renderOrders(){
       ["issue","⚠️ Sự cố",c(r=>r.it&&r.it.item_status==="issue")],
       ["dup","👥 Trùng khách",c(r=>S.dupOrders&&S.dupOrders.has(r.o.id))]];
     return chips.map(([k,label,n])=>`<button class="btn btn-sm ${(f.special||"")===k?"btn-p":""}" onclick="S.filters.special='${k}';S.page=1;renderOrders()">${label}${n?` <b>${n}</b>`:""}</button>`).join(""); })()}</div>
+  ${(()=>{ const vs=savedViews(); return `<div class="flex mb" style="gap:6px;flex-wrap:wrap;align-items:center"><span class="small muted">Bộ lọc đã lưu:</span>${vs.length?vs.map((v,i)=>`<span class="badge b-blue" style="cursor:pointer" onclick="applyView(${i})">${esc(v.name)} <a onclick="event.stopPropagation();delView(${i})" style="cursor:pointer" title="Xoá">✕</a></span>`).join(""):'<span class="small muted">chưa có</span>'}<button class="btn btn-sm" onclick="saveView()">💾 Lưu lọc hiện tại</button></div>`; })()}
+  ${ocStyle()}
   <div class="tw"><table>
-    <tr class="thgroup"><th colspan="4">📋 Thông tin đơn</th><th>👤 Khách</th><th colspan="4">👕 Sản phẩm</th><th colspan="2">🎨 Thiết kế</th><th colspan="6">🚚 Vận chuyển & tài chính</th></tr>
-    <tr><th>Ngày</th><th>Order ID</th><th>TK bán</th><th>Seller</th><th>Khách hàng</th>
-    <th>Sản phẩm</th><th>Size</th><th>Color</th><th>SL</th>
-    <th>Design</th><th>✓</th>
-    <th>Xưởng</th><th>Order FFM</th><th>Tracking</th><th>Trạng thái</th><th>SLA</th><th class="right">Chi phí</th></tr>
+    <tr class="thgroup">${ocGroupHeader()}</tr>
+    <tr>${ocSubHeader()}</tr>
     ${pageRows.map(r=>{
       const { o, it } = r; const sla = slaInfo(it); const c = it?readyChecks(o,it):null;
       return `<tr>
-      <td class="nowrap">${fmtD(o.order_date)}</td>
-      <td class="nowrap"><a href="#" onclick="openOrder('${o.id}');return false">${esc(o.platform_order_id)}</a> <span class="cpy" data-copy="${esc(o.platform_order_id)}" title="Copy Order ID" style="cursor:pointer">📋</span> <a href="#" onclick="openOrder('${o.id}');return false" title="Mở & sửa/cập nhật đơn" style="text-decoration:none">✏️</a>${r.multi?' <span class="badge b-purple" title="Đơn nhiều sản phẩm">⧉</span>':""}${S.dupOrders&&S.dupOrders.has(o.id)?' <span class="badge b-yellow" title="Trùng tên/địa chỉ khách với đơn khác">👥</span>':""}</td>
-      <td class="nowrap">${esc(o.selling_account_id && maps.sellAcc[o.selling_account_id]?.name || "")}</td>
-      <td class="nowrap">${esc(sellerName(o))}</td>
-      <td><span class="clip" title="${esc((o.customer_name||"")+" · "+(o.customer_address||""))}">${esc(o.customer_name||"")}</span></td>
-      <td><span class="clip" style="max-width:220px" title="${esc(it?.product_title||"")}">${esc(itemLabel(it))}</span></td>
-      <td class="nowrap">${esc(it?.size||"")}</td><td class="nowrap">${esc(it?.color||"")}</td><td class="center">${it?.quantity??""}</td>
-      <td class="center">${it?.design_link?`<a href="${esc(it.design_link)}" target="_blank">🔗</a>`:""}</td>
-      <td class="center">${it? (it.confirm_design?'<span class="b-green badge">✓</span>':'<span class="muted">—</span>'):""}</td>
-      <td class="nowrap">${esc(it?.factory_id && maps.factory[it.factory_id]?.name || "")}</td>
-      <td class="nowrap small">${esc(it?.factory_order_id||"")}</td>
-      <td class="nowrap">${(()=>{const tk=it?.tracking_number||o.tracking_number||"";return tk?`<span class="clip" style="max-width:110px" title="${esc(tk)}">${esc(tk)}</span> <span class="cpy" data-copy="${esc(tk)}" title="Copy tracking" style="cursor:pointer">📋</span>`:"";})()}</td>
-      <td>${it?`<span class="badge ${STATUS_BADGE[it.item_status]}">${STATUS_VI[it.item_status]}</span>`:""}
+      <td class="oc-date nowrap">${fmtD(o.order_date)}</td>
+      <td class="oc-oid nowrap"><a href="#" onclick="openOrder('${o.id}');return false">${esc(o.platform_order_id)}</a> <span class="cpy" data-copy="${esc(o.platform_order_id)}" title="Copy Order ID" style="cursor:pointer">📋</span> <a href="#" onclick="openOrder('${o.id}');return false" title="Mở & sửa/cập nhật đơn" style="text-decoration:none">✏️</a>${r.multi?' <span class="badge b-purple" title="Đơn nhiều sản phẩm">⧉</span>':""}${S.dupOrders&&S.dupOrders.has(o.id)?' <span class="badge b-yellow" title="Trùng tên/địa chỉ khách với đơn khác">👥</span>':""}</td>
+      <td class="oc-acc nowrap">${esc(o.selling_account_id && maps.sellAcc[o.selling_account_id]?.name || "")}</td>
+      <td class="oc-seller nowrap">${esc(sellerName(o))}</td>
+      <td class="oc-cust"><span class="clip" title="${esc((o.customer_name||"")+" · "+(o.customer_address||""))}">${esc(o.customer_name||"")}</span></td>
+      <td class="oc-prod"><span class="clip" style="max-width:220px" title="${esc(it?.product_title||"")}">${esc(itemLabel(it))}</span></td>
+      <td class="oc-sku nowrap small">${it?.sku_phoi?`<span class="clip" style="max-width:90px" title="${esc(it.sku_phoi)}">${esc(it.sku_phoi)}</span> <span class="cpy" data-copy="${esc(it.sku_phoi)}" title="Copy SKU" style="cursor:pointer">📋</span>`:""}</td>
+      <td class="oc-link nowrap">${it?.listing_link?`<a href="${esc(it.listing_link)}" target="_blank" title="${esc(it.listing_link)}">🔗</a> <span class="cpy" data-copy="${esc(it.listing_link)}" title="Copy link SP" style="cursor:pointer">📋</span>`:""}</td>
+      <td class="oc-size nowrap">${esc(it?.size||"")}</td><td class="oc-color nowrap">${esc(it?.color||"")}</td><td class="oc-sl center">${it?.quantity??""}</td>
+      <td class="oc-design center">${it?.design_link?`<a href="${esc(it.design_link)}" target="_blank">🔗</a>`:""}</td>
+      <td class="oc-conf center">${it? (it.confirm_design?'<span class="b-green badge">✓</span>':'<span class="muted">—</span>'):""}</td>
+      <td class="oc-factory nowrap">${esc(it?.factory_id && maps.factory[it.factory_id]?.name || "")}</td>
+      <td class="oc-offm nowrap small">${esc(it?.factory_order_id||"")}</td>
+      <td class="oc-track nowrap">${(()=>{const tk=it?.tracking_number||o.tracking_number||"";return tk?`<span class="clip" style="max-width:110px" title="${esc(tk)}">${esc(tk)}</span> <span class="cpy" data-copy="${esc(tk)}" title="Copy tracking" style="cursor:pointer">📋</span>`:"";})()}</td>
+      <td class="oc-status">${it?`<span class="badge ${STATUS_BADGE[it.item_status]}">${STATUS_VI[it.item_status]}</span>`:""}
         ${c&&!(c.label&&c.design&&c.tracking)?`<div class="small muted nowrap" title="Điều kiện đẩy xưởng">${c.label?"✅":"⬜"}L ${c.design?"✅":"⬜"}D ${c.tracking?"✅":"⬜"}T</div>`:""}</td>
-      <td class="nowrap ${sla?sla.cls:""}">${sla?sla.txt:""}</td>
-      <td class="right nowrap">${it&&it.fulfillment_cost!=null?fmtMoney(it.fulfillment_cost,it.cost_currency):""}</td>
+      <td class="oc-sla nowrap ${sla?sla.cls:""}">${sla?sla.txt:""}</td>
+      <td class="oc-cost right nowrap">${it&&it.fulfillment_cost!=null?fmtMoney(it.fulfillment_cost,it.cost_currency):""}</td>
       </tr>`;
-    }).join("") || `<tr><td colspan="17" class="muted">Không có dòng nào khớp bộ lọc.</td></tr>`}
+    }).join("") || `<tr><td colspan="19" class="muted">Không có dòng nào khớp bộ lọc.</td></tr>`}
   </table></div>
   <div class="flex mt small muted" style="gap:18px;flex-wrap:wrap">
     <span>Tổng: <b>${new Set(rows.map(r=>r.o.id)).size}</b> đơn · <b>${rows.length}</b> dòng SP</span>
@@ -998,7 +1059,10 @@ async function claimCare(orderId){
 let NR = []; // rows đang nhập
 function blankRow(){ return { order_id:"", date:today(), acc:"", label:"", cust:"", tmpl:"", ptype:"", fact:"", dim:"", sku:"", size:"", color:"", qty:1, listing:"", odesign:"", design:"", conf:"0", note:"" }; }
 function rowHasData(r){ return !!(r.order_id||r.cust||r.tmpl||r.size||r.color||r.design||r.label||r.sku); }
-function ensureBlank(){ while(NR.length<2 || rowHasData(NR[NR.length-1]) || rowHasData(NR[NR.length-2])) NR.push(blankRow()); }
+function ensureBlank(){ while(NR.length<2 || rowHasData(NR[NR.length-1]) || rowHasData(NR[NR.length-2])){ const r=blankRow(); const prev=NR[NR.length-1]; if(prev){ r.date=prev.date; r.acc=prev.acc; r.accname=prev.accname; } NR.push(r); } }
+function copyRowDown(i){ if(i<=0)return; const p=NR[i-1],r=NR[i]; if(!p)return; r.date=p.date;r.acc=p.acc;r.accname=p.accname;r.tmpl=p.tmpl;r.tmplname=p.tmplname;r.ptype=p.ptype;r.fact=p.fact;r.dim=p.dim; rerenderNewHost(); }
+function dupBadge(oid){ oid=(oid||"").trim(); if(!oid)return ""; return S.orders.some(o=>o.platform==="TTS"&&o.platform_order_id===oid)?' <span class="badge b-yellow" title="Order ID đã có — sản phẩm sẽ THÊM vào đơn cũ, không tạo trùng">đã có</span>':""; }
+function custPreview(v){ if(!v||!v.trim())return ""; const c=splitCustomer(v); const a=[c.name?"👤"+c.name:"",c.phone?"📞"+c.phone:"",c.address?"📍"+c.address:""].filter(Boolean); return a.length?esc(a.join(" · ")):'<span class="sla-red">chưa tách được — sửa lại</span>'; }
 /* Tách "Customer Info" gộp 1 ô (giống Excel) -> name / phone / address */
 function splitCustomer(raw){
   const s = (raw||"").trim();
@@ -1041,7 +1105,10 @@ function newSheetHTML(){
   if(!NR.length) NR=[blankRow(),blankRow()]; ensureBlank();
   const accOpts = S.sellAccs.filter(a=>a.active!==false).map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join("");
   const tOpts = S.templates.filter(t=>t.active!==false).map(t=>`<option value="${t.id}">${esc((t.code?t.code+" · ":"")+t.name)}</option>`).join("");
-  return `<div class="tw" style="max-height:60vh"><table class="sheet">
+  const tDisp = t => (t.code?t.code+" · ":"")+t.name;
+  const dls = `<datalist id="dl_acc">${S.sellAccs.filter(a=>a.active!==false).map(a=>`<option value="${esc(a.name)}">`).join("")}</datalist>
+  <datalist id="dl_tmpl">${S.templates.filter(t=>t.active!==false).map(t=>`<option value="${esc(tDisp(t))}">`).join("")}</datalist>`;
+  return `${dls}<div class="tw" style="max-height:60vh"><table class="sheet">
     <tr class="thgroup"><th></th><th colspan="4">📋 Thông tin đơn hàng</th><th>👤 Khách</th><th colspan="8">👕 Thông tin sản phẩm</th><th colspan="4">🎨 Thiết kế sản phẩm</th><th></th><th></th></tr>
     <tr><th>#</th>
     <th>Ngày Order</th><th style="min-width:150px">Order ID *</th><th style="min-width:85px">TK bán hàng</th><th style="min-width:130px">Link Label (TTS)</th>
@@ -1051,13 +1118,13 @@ function newSheetHTML(){
     <th style="min-width:120px">Link sản phẩm</th><th style="min-width:95px">Order Design</th><th style="min-width:120px">File Design</th><th>Confirm</th>
     <th style="min-width:100px">Seller Note</th><th></th></tr>
     ${NR.map((r,i)=>`<tr>
-      <td class="muted center">${i+1}</td>
+      <td class="muted center">${i+1}${i>0?`<br><button class="btn btn-sm" tabindex="-1" title="Chép Ngày/TK bán/Template từ dòng trên" onclick="copyRowDown(${i})" style="padding:0 5px;margin-top:2px">⤵</button>`:""}</td>
       <td><input data-i="${i}" data-k="date" type="date" value="${r.date}"></td>
-      <td><input data-i="${i}" data-k="order_id" value="${esc(r.order_id)}" placeholder="57738…"></td>
-      <td><select data-i="${i}" data-k="acc"><option value=""></option>${accOpts}</select></td>
+      <td class="nowrap"><input data-i="${i}" data-k="order_id" value="${esc(r.order_id)}" placeholder="57738…"><span id="dupflag_${i}">${dupBadge(r.order_id)}</span></td>
+      <td><input data-i="${i}" data-k="accname" list="dl_acc" value="${esc(r.accname!=null?r.accname:(r.acc&&maps.sellAcc[r.acc]?maps.sellAcc[r.acc].name:''))}" placeholder="gõ shop…" style="min-width:85px" autocomplete="off"></td>
       <td><input data-i="${i}" data-k="label" value="${esc(r.label)}" placeholder="https://cdn.cotik.app/…"></td>
-      <td><input data-i="${i}" data-k="cust" value="${esc(r.cust)}" placeholder="Tên - (+1)SĐT - Địa chỉ"></td>
-      <td><select data-i="${i}" data-k="tmpl"><option value=""></option>${tOpts}</select></td>
+      <td><input data-i="${i}" data-k="cust" value="${esc(r.cust)}" placeholder="Tên - (+1)SĐT - Địa chỉ"><div class="small muted" id="custpv_${i}" style="max-width:180px;line-height:1.3">${custPreview(r.cust)}</div></td>
+      <td><input data-i="${i}" data-k="tmplname" list="dl_tmpl" value="${esc(r.tmplname!=null?r.tmplname:(r.tmpl&&maps.template[r.tmpl]?tDisp(maps.template[r.tmpl]):''))}" placeholder="gõ mã/tên…" style="min-width:200px" autocomplete="off"></td>
       <td class="cell-auto"><input data-i="${i}" data-k="ptype" value="${esc(r.ptype)}"></td>
       <td class="cell-auto"><input data-i="${i}" data-k="factname" value="${esc(r.fact && maps.factory[r.fact]?.name || "")}" readonly tabindex="-1"></td>
       <td class="cell-auto"><input data-i="${i}" data-k="dim" value="${esc(r.dim)}"></td>
@@ -1076,22 +1143,23 @@ function newSheetHTML(){
 }
 function wireNewSheet(){
   $$("#view .sheet select, #view .sheet input").forEach(el=>{
+    const tDisp = t => (t.code?t.code+" · ":"")+t.name;
     const setVal = (i,k,v)=>{
       if(k==="factname") return;
-      if(k==="tmpl"){
-        NR[i].tmpl = v;
-        const t = maps.template[v];
-        if(t){ NR[i].ptype = t.product_type||""; NR[i].fact = t.factory_id||""; NR[i].dim = t.dimension||""; }
-        rerenderNewHost(); return;
-      }
+      if(k==="accname"){ NR[i].accname=v; const a=S.sellAccs.find(x=>x.name===v); NR[i].acc=a?a.id:"";
+        const before=NR.length; ensureBlank(); if(NR.length!==before) rerenderNewHost(); return; }
+      if(k==="order_id"){ NR[i].order_id=v; const bd=document.getElementById("dupflag_"+i); if(bd)bd.innerHTML=dupBadge(v); const before=NR.length; ensureBlank(); if(NR.length!==before) rerenderNewHost(); return; }
+      if(k==="cust"){ NR[i].cust=v; const pv=document.getElementById("custpv_"+i); if(pv)pv.innerHTML=custPreview(v); const before=NR.length; ensureBlank(); if(NR.length!==before) rerenderNewHost(); return; }
+      if(k==="tmplname"){ NR[i].tmplname=v; const t=S.templates.find(x=>tDisp(x)===v);
+        if(t){ NR[i].tmpl=t.id; NR[i].ptype=t.product_type||""; NR[i].fact=t.factory_id||""; NR[i].dim=t.dimension||""; rerenderNewHost(); }
+        else { NR[i].tmpl=""; const before=NR.length; ensureBlank(); if(NR.length!==before) rerenderNewHost(); }
+        return; }
       NR[i][k] = k==="qty" ? (Number(v)||1) : v;
       const before = NR.length; ensureBlank();
       if(NR.length !== before) rerenderNewHost();
     };
     if(el.tagName==="SELECT"){
       const i=+el.dataset.i, k=el.dataset.k;
-      if(k==="acc") el.value=NR[i].acc;
-      if(k==="tmpl") el.value=NR[i].tmpl;
       if(k==="conf") el.value=NR[i].conf;
       el.addEventListener("change", e=> setVal(+e.target.dataset.i, e.target.dataset.k, e.target.value));
     } else {
