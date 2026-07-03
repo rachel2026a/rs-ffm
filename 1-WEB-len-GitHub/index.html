@@ -83,6 +83,7 @@ tr:hover td{background:var(--panel2)}
 #sidebar .logo b{color:#fff;font-size:14px;display:block}
 #sidebar .logo span{font-size:11px}
 #nav{flex:1;overflow-y:auto;padding:8px}
+#nav .navgroup{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:#6b7a90;padding:12px 12px 4px;font-weight:600}
 #nav .item{display:flex;gap:9px;align-items:center;padding:8px 10px;border-radius:8px;cursor:pointer;font-size:13px;margin-bottom:1px}
 #nav .item:hover{background:var(--sbactive)}
 #nav .item.active{background:var(--sbactive);color:#fff;font-weight:600}
@@ -200,7 +201,7 @@ const S = {
   balances: [],                    // v_factory_balance
   rows: [],                        // item-per-row đã join (bảng đơn hàng)
   page: 1, perPage: 100,
-  filters: { q:"", seller:"", factory:"", status:"", multi:false, special:"", dateFrom:"", dateTo:"", account:"", sort:"date", sortDir:"desc" },
+  filters: { q:"", seller:"", factory:"", status:"", multi:false, special:"", dateFrom:"", dateTo:"", account:"", sort:"date", sortDir:"desc", batch:null },
   view: "dash",
   period: { mode:"all", from:"", to:"" },   /* bộ lọc thời gian dùng chung */
 };
@@ -449,21 +450,20 @@ function buildAlerts(){
 
 /* ================= NAV / ROUTER ================= */
 const MENU = [
-  { id:"dash",     icon:"🏠", label:"Tổng quan" },
-  { id:"todo",     icon:"✅", label:"Việc hôm nay" },
-  { id:"orders",   icon:"📦", label:"Đơn hàng" },
-  { id:"lookup",   icon:"🔎", label:"Tra cứu lô" },
-  { id:"new",      icon:"➕", label:"Nhập đơn" },
-  { id:"sheet",    icon:"🧾", label:"Đơn đang đi" },
-  { id:"import",   icon:"⬆️", label:"Import dữ liệu" },
-  { id:"tasks",    icon:"📝", label:"Giao việc" },
-  { id:"push",     icon:"🏭", label:"Đẩy xưởng", ffm:true },
-  { id:"finance",  icon:"💰", label:"Tài chính", ffm:true },
-  { id:"catalog",  icon:"📚", label:"Danh mục" },
-  { id:"alerts",   icon:"🔔", label:"Cảnh báo" },
-  { id:"users",    icon:"👥", label:"Phân quyền", admin:true },
-  { id:"log",      icon:"📜", label:"Nhật ký", viewall:true },
-  { id:"profile",  icon:"👤", label:"Hồ sơ" },
+  { id:"dash",     icon:"🏠", label:"Tổng quan", grp:"Theo dõi" },
+  { id:"todo",     icon:"✅", label:"Việc hôm nay", grp:"Theo dõi" },
+  { id:"alerts",   icon:"🔔", label:"Cảnh báo", grp:"Theo dõi" },
+  { id:"new",      icon:"➕", label:"Nhập đơn", grp:"Đơn hàng" },
+  { id:"sheet",    icon:"🧾", label:"Đơn đang đi", grp:"Đơn hàng" },
+  { id:"orders",   icon:"📦", label:"Đơn hàng", grp:"Đơn hàng" },
+  { id:"push",     icon:"🏭", label:"Đẩy xưởng", ffm:true, grp:"Đơn hàng" },
+  { id:"tasks",    icon:"📝", label:"Giao việc", grp:"Vận hành" },
+  { id:"finance",  icon:"💰", label:"Tài chính", ffm:true, grp:"Vận hành" },
+  { id:"import",   icon:"⬆️", label:"Import dữ liệu", grp:"Vận hành" },
+  { id:"catalog",  icon:"📚", label:"Danh mục", grp:"Vận hành" },
+  { id:"users",    icon:"👥", label:"Phân quyền", admin:true, grp:"Quản trị" },
+  { id:"log",      icon:"📜", label:"Nhật ký", viewall:true, grp:"Quản trị" },
+  { id:"profile",  icon:"👤", label:"Hồ sơ", grp:"Quản trị" },
 ];
 function canSee(m){
   if(m.admin) return isAdmin();
@@ -474,7 +474,9 @@ function canSee(m){
 function buildNav(){
   const alerts = buildAlerts();
   const pend = isAdmin() ? S.profiles.filter(p=>!p.approved).length : 0;
+  let _lastG="";
   $("#nav").innerHTML = MENU.filter(canSee).map(m=>{
+    let head=""; if(m.grp && m.grp!==_lastG){ head=`<div class="navgroup">${m.grp}</div>`; _lastG=m.grp; }
     let cnt = "";
     if(m.id==="alerts" && alerts.length) cnt = `<span class="cnt">${alerts.length}</span>`;
     if(m.id==="users" && pend) cnt = `<span class="cnt">${pend}</span>`;
@@ -484,13 +486,13 @@ function buildNav(){
       return !["ordered","in_production","has_tracking","synced","delivered","cancelled","issue"].includes(r.it.item_status) && !(c.label&&c.design&&c.tracking); }).length;
       if(n) cnt = `<span class="cnt">${n>99?"99+":n}</span>`; }
     if(m.id==="push" && isFFM()){ const n=(S.rows||[]).filter(r=>isReadyToPush(r.o,r.it)).length; if(n) cnt=`<span class="cnt">${n>99?"99+":n}</span>`; }
-    return `<div class="item ${S.view===m.id?"active":""}" data-v="${m.id}">${m.icon} ${m.label}${cnt}</div>`;
+    return head + `<div class="item ${S.view===m.id?"active":""}" data-v="${m.id}">${m.icon} ${m.label}${cnt}</div>`;
   }).join("");
   $$("#nav .item").forEach(el=> el.onclick = ()=>{ go(el.dataset.v); $("#sidebar").classList.remove("open"); });
 }
 function go(v){
   S.view = v; buildNav();
-  const R = { dash:renderDash, todo:renderTodo, orders:renderOrders, lookup:renderLookup, sheet:renderSheet, new:renderNew, import:renderImport, tasks:renderTasks,
+  const R = { dash:renderDash, todo:renderTodo, orders:renderOrders, sheet:renderSheet, new:renderNew, import:renderImport, tasks:renderTasks,
     push:renderPush, finance:renderFinance, catalog:renderCatalog, alerts:renderAlerts,
     users:renderUsers, log:renderLog, profile:renderProfile };
   (R[v]||renderDash)();
@@ -647,6 +649,9 @@ function filteredRows(){
       if(!(it && !["ordered","in_production","has_tracking","synced","delivered","cancelled","issue"].includes(it.item_status) && _c && !(_c.label&&_c.design&&_c.tracking))) return false; }
     else if(f.special==="issue"){ if(it?.item_status!=="issue") return false; }
     else if(f.special==="dup"){ if(!(S.dupOrders && S.dupOrders.has(o.id))) return false; }
+    if(f.batch && f.batch.size){ const oid=(o.platform_order_id||"").toLowerCase();
+      const hit = f.batch.has(oid) || f.batch.has((o.tracking_number||"").toLowerCase()) || f.batch.has((it?.tracking_number||"").toLowerCase()) || f.batch.has((it?.factory_order_id||"").toLowerCase());
+      if(!hit) return false; }
     if(q){
       const hay = [o.platform_order_id, o.customer_name, o.customer_address, o.seller_note, o.buyer_note,
         o.tracking_number, it?.tracking_number, it?.color, it?.size, it?.factory_order_id, it?.product_title,
@@ -657,7 +662,7 @@ function filteredRows(){
   });
 }
 function goFilter(patch){
-  S.filters = Object.assign({q:"",seller:"",factory:"",status:"",multi:false,special:"",dateFrom:"",dateTo:"",account:"",sort:"date",sortDir:"desc"}, patch||{});
+  S.filters = Object.assign({q:"",seller:"",factory:"",status:"",multi:false,special:"",dateFrom:"",dateTo:"",account:"",sort:"date",sortDir:"desc",batch:null}, patch||{});
   S.page = 1; go("orders");
 }
 function copyText(t){ if(!t) return;
@@ -709,6 +714,15 @@ function wirePeriod(){
 function renderOrders(){
   const sellers = [...new Set(S.rows.map(r=>sellerName(r.o)))].filter(x=>x!=="—").sort();
   const rows = sortRows(filteredRows());
+  let batchBanner="";
+  if(S.filters.batch && S.filters.batch.size){ const bf=S.filters.batch; const found=new Set();
+    for(const r of S.rows){ [(r.o.platform_order_id||""),(r.o.tracking_number||""),(r.it&&r.it.tracking_number||""),(r.it&&r.it.factory_order_id||"")].forEach(k=>{ k=k.toLowerCase(); if(k&&bf.has(k)) found.add(k); }); }
+    const miss=[...bf].filter(k=>!found.has(k));
+    batchBanner=`<div class="card mb"><div class="flex" style="gap:10px;flex-wrap:wrap;align-items:center">
+      <b>Đối soát lô:</b><span class="badge b-green">${found.size} mã khớp</span>${miss.length?`<span class="badge b-red">${miss.length} mã KHÔNG thấy</span>`:`<span class="badge b-blue">đủ hết ✅</span>`}
+      <button class="btn btn-sm" onclick="S.filters.batch=null;S.page=1;renderOrders()">✕ Bỏ đối soát</button>
+      ${miss.length?`<details style="width:100%"><summary class="small muted">Mã không tìm thấy (${miss.length})</summary><div class="small muted" style="word-break:break-all">${miss.map(esc).join(", ")}</div></details>`:""}
+    </div></div>`; }
   const pages = Math.max(1, Math.ceil(rows.length / S.perPage));
   if(S.page > pages) S.page = 1;
   const pageRows = rows.slice((S.page-1)*S.perPage, S.page*S.perPage);
@@ -725,13 +739,15 @@ function renderOrders(){
     <select id="fFactory"><option value="">Tất cả xưởng</option>${S.factories.map(x=>`<option value="${x.id}" ${f.factory===x.id?"selected":""}>${esc(x.name)}</option>`).join("")}</select>
     <select id="fStatus"><option value="">Mọi trạng thái</option>${Object.entries(STATUS_VI).map(([k,v])=>`<option value="${k}" ${f.status===k?"selected":""}>${v}</option>`).join("")}</select>
     <label class="flex" style="margin:0"><input type="checkbox" id="fMulti" ${f.multi?"checked":""} style="width:auto"> Đơn nhiều SP</label>
-    <button class="btn btn-sm" onclick="S.filters={q:'',seller:'',factory:'',status:'',multi:false,special:'',dateFrom:'',dateTo:'',account:'',sort:'date',sortDir:'desc'};S.page=1;renderOrders()">Xóa lọc</button>
+    <button class="btn btn-sm" onclick="batchLookup()">📋 Dán nhiều mã (đối soát)</button>
+    <button class="btn btn-sm" onclick="S.filters={q:'',seller:'',factory:'',status:'',multi:false,special:'',dateFrom:'',dateTo:'',account:'',sort:'date',sortDir:'desc',batch:null};S.page=1;renderOrders()">Xóa lọc</button>
   </div>
   <div class="flex mt" style="gap:8px;flex-wrap:wrap">
     <select id="fAcc"><option value="">Tất cả TK bán</option>${S.sellAccs.map(a=>`<option value="${a.id}" ${f.account===a.id?"selected":""}>${esc(a.name)}</option>`).join("")}</select>
     <select id="fSort"><option value="date" ${f.sort==="date"?"selected":""}>Sắp xếp: Ngày</option><option value="sla" ${f.sort==="sla"?"selected":""}>Sắp xếp: SLA</option><option value="cost" ${f.sort==="cost"?"selected":""}>Sắp xếp: Chi phí</option></select>
     <button class="btn btn-sm" onclick="S.filters.sortDir=S.filters.sortDir==='asc'?'desc':'asc';renderOrders()">${f.sortDir==="asc"?"↑ Tăng dần":"↓ Giảm dần"}</button>
   </div></div>
+  ${batchBanner}
   <div class="flex mb" style="gap:6px;flex-wrap:wrap">${(()=>{ const c=fn=>S.rows.filter(fn).length;
     const chips=[["","Tất cả",S.rows.length],
       ["late","🔴 Trễ SLA",c(r=>{const x=slaInfo(r.it);return x&&x.diff<0;})],
@@ -2056,14 +2072,14 @@ function renderSheet(){
       <td class="nowrap"><a href="#" onclick="openOrder('${o.id}');return false">${esc(o.platform_order_id)}</a></td>
       <td><input id="${g('customer_name',it.id)}" value="${esc(o.customer_name||"")}" onchange="gridSave('${it.id}')" ${dS}></td>
       <td><input id="${g('customer_contact',it.id)}" value="${esc(o.customer_contact||"")}" onchange="gridSave('${it.id}')" ${dS}></td>
-      <td><input id="${g('customer_address',it.id)}" value="${esc(o.customer_address||"")}" onchange="gridSave('${it.id}')" ${dS}></td>
-      <td><input id="${g('label_link',it.id)}" value="${esc(o.label_link||"")}" onchange="gridSave('${it.id}')" ${dS}></td>
+      <td class="nowrap"><input id="${g('customer_address',it.id)}" value="${esc(o.customer_address||"")}" onchange="gridSave('${it.id}')" ${dS} style="width:130px"> <span onclick="openCellEditor('${it.id}','customer_address','Địa chỉ')" title="Mở rộng xem/sửa" style="cursor:pointer">⤢</span></td>
+      <td class="nowrap"><input id="${g('label_link',it.id)}" value="${esc(o.label_link||"")}" onchange="gridSave('${it.id}')" ${dS} style="width:90px"> <span onclick="openCellEditor('${it.id}','label_link','Link Label')" title="Mở rộng xem/sửa" style="cursor:pointer">⤢</span></td>
       <td><input id="${g('order_date',it.id)}" type="date" value="${o.order_date||""}" onchange="gridSave('${it.id}')" ${dS}></td>
       <td><select id="${g('template_id',it.id)}" onchange="gridTmpl('${it.id}')" ${dS}>${tOpts(it.template_id)}</select></td>
       <td><input id="${g('size',it.id)}" value="${esc(it.size||"")}" onchange="gridSave('${it.id}')" ${dS} style="width:52px"></td>
       <td><input id="${g('color',it.id)}" value="${esc(it.color||"")}" onchange="gridSave('${it.id}')" ${dS} style="width:64px"></td>
       <td><input id="${g('quantity',it.id)}" type="number" min="1" value="${it.quantity||1}" onchange="gridSave('${it.id}')" ${dS} style="width:44px"></td>
-      <td><input id="${g('design_link',it.id)}" value="${esc(it.design_link||"")}" onchange="gridSave('${it.id}')" ${dS}></td>
+      <td class="nowrap"><input id="${g('design_link',it.id)}" value="${esc(it.design_link||"")}" onchange="gridSave('${it.id}')" ${dS} style="width:90px"> <span onclick="openCellEditor('${it.id}','design_link','Link Design')" title="Mở rộng xem/sửa" style="cursor:pointer">⤢</span></td>
       <td class="center"><select id="${g('confirm_design',it.id)}" onchange="gridSave('${it.id}')" ${dS} style="width:52px"><option value="0" ${!it.confirm_design?"selected":""}>—</option><option value="1" ${it.confirm_design?"selected":""}>✓</option></select></td>
       <td class="cell-auto small" id="gx_${it.id}">${esc(it.factory_id&&maps.factory[it.factory_id]?.name||"")}</td>
       <td><input id="${g('factory_order_id',it.id)}" value="${esc(it.factory_order_id||"")}" onchange="gridSave('${it.id}')" ${dF}></td>
@@ -2094,6 +2110,24 @@ async function gridTmpl(itemId){
   const gx=$(`#gx_${itemId}`); if(gx) gx.textContent = it.factory_id&&maps.factory[it.factory_id]?.name||"";
   buildRows(); toast("Đã áp Template.");
 }
+function openCellEditor(itemId, field, label){
+  const it=S.items.find(x=>x.id===itemId); if(!it) return; const o=maps.order[it.order_id]; if(!o) return;
+  const orderLevel=["customer_name","customer_contact","customer_address","label_link"].includes(field);
+  const cur = orderLevel ? (o[field]||"") : (it[field]||"");
+  const canEdit = orderLevel ? (canEditOrder(o) && S.me.role!=="ffm") : (canEditOrder(o) && S.me.role!=="ffm");
+  openModal(`<div class="spread mb"><h2>${esc(label)} — đơn ${esc(o.platform_order_id)}</h2><button class="btn btn-sm" onclick="closeModal()">✕</button></div>
+  <textarea id="cellEd" rows="5" style="width:100%" ${canEdit?"":"disabled"}>${esc(cur)}</textarea>
+  <div class="flex mt">${canEdit?`<button class="btn btn-p" onclick="saveCellEditor('${itemId}','${field}',${orderLevel})">💾 Lưu</button>`:`<span class="small muted">Chỉ xem</span>`}
+    <button class="btn" onclick="copyText($('#cellEd').value)">📋 Copy</button>
+    <button class="btn" onclick="closeModal()">Đóng</button></div>`);
+}
+async function saveCellEditor(itemId, field, orderLevel){
+  const it=S.items.find(x=>x.id===itemId); if(!it) return; const o=maps.order[it.order_id];
+  const v=($("#cellEd").value||"").trim()||null;
+  if(orderLevel){ const {error}=await db.from("orders").update({[field]:v, updated_by:S.me.id}).eq("id",o.id); if(error) return fail(error); o[field]=v; }
+  else { const {error}=await db.from("order_items").update({[field]:v}).eq("id",itemId); if(error) return fail(error); it[field]=v; }
+  closeModal(); buildRows(); toast("Đã lưu."); if(S.view==="sheet") renderSheet();
+}
 async function gridSave(itemId){
   const it=S.items.find(x=>x.id===itemId); if(!it) return;
   const o=maps.order[it.order_id]; if(!o) return;
@@ -2122,6 +2156,17 @@ async function gridSave(itemId){
     if(Object.keys(ip).length){ const {data,error}=await db.from("order_items").update(ip).eq("id",itemId).select().single(); if(error) throw error; Object.assign(it,data||ip); }
     buildRows(); buildNav(); toast("Đã lưu.");
   }catch(e){ fail(e); }
+}
+function batchLookup(){
+  openModal(`<div class="spread mb"><h2>Đối soát nhiều mã</h2><button class="btn btn-sm" onclick="closeModal()">✕</button></div>
+  <p class="small muted">Dán một loạt <b>Order ID</b> hoặc <b>Tracking</b> (mỗi dòng 1 mã) → bảng Đơn hàng chỉ còn các đơn khớp + báo mã nào không tìm thấy.</p>
+  <textarea id="batchBox" rows="7" style="width:100%;font-family:monospace;font-size:12px" placeholder="Mỗi dòng 1 mã..."></textarea>
+  <div class="flex mt"><button class="btn btn-p" onclick="applyBatch()">Đối soát</button><button class="btn" onclick="closeModal()">Hủy</button></div>`);
+}
+function applyBatch(){
+  const keys=($("#batchBox").value||"").split(/\r?\n|[,;\t]+/).map(x=>x.trim().toLowerCase()).filter(Boolean);
+  S.filters.batch = keys.length? new Set(keys) : null;
+  S.page=1; closeModal(); renderOrders();
 }
 function renderProfile(){
   const p = S.me;
