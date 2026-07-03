@@ -173,7 +173,7 @@ tr:hover td{background:var(--panel2)}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v1.2</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v1.4</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -732,8 +732,9 @@ function renderOrders(){
   $("#view").innerHTML = `
   <div class="spread mb"><div><h1>Đơn hàng</h1>
     <p class="sub">${rows.length} dòng sản phẩm · ${new Set(rows.map(r=>r.o.id)).size} đơn · bấm Order ID hoặc ✏️ để mở & sửa/cập nhật đơn</p></div>
-    <div class="flex"><button class="btn btn-p" onclick="go('new')">＋ Thêm đơn mới</button><button class="btn" onclick="exportOrdersCsv()">⇩ Xuất Excel</button></div></div>
+    <div class="flex"><button class="btn btn-p" onclick="toggleNewPanel()">${S.showNew?"✕ Đóng thêm đơn":"＋ Thêm đơn mới"}</button><button class="btn" onclick="exportOrdersCsv()">⇩ Xuất Excel</button></div></div>
   ${periodBar()}
+  ${S.showNew?`<div class="card mb" style="border:2px solid #0284c7"><div class="spread mb"><div><h3 style="margin:0">＋ Thêm đơn mới</h3><span class="small muted">Nhập ở đây · copy thông tin từ danh sách đơn bên dưới nếu cần</span></div><div class="flex"><button class="btn" onclick="pasteImport()">📋 Dán từ Excel</button><button class="btn btn-p" onclick="saveNewRows()">💾 Lưu tất cả</button><button class="btn btn-sm" onclick="toggleNewPanel()">Thu gọn ▲</button></div></div>${newSheetHTML()}</div>`:""}
   <div class="card mb"><div class="flex">
     <input id="fQ" placeholder="🔍 Order ID / khách / note / color / tracking..." style="flex:1;min-width:220px" value="${esc(f.q)}">
     <select id="fSeller"><option value="">Tất cả seller</option>${sellers.map(s=>`<option ${f.seller===s?"selected":""}>${esc(s)}</option>`).join("")}</select>
@@ -802,6 +803,7 @@ function renderOrders(){
   $("#fAcc").onchange  = e=>{ S.filters.account=e.target.value; S.page=1; renderOrders(); };
   $("#fSort").onchange = e=>{ S.filters.sort=e.target.value; renderOrders(); };
   $$("#view .cpy").forEach(el=> el.onclick = ()=> copyText(el.getAttribute("data-copy")));
+  if(S.showNew) wireNewSheet();
 }
 function exportOrdersCsv(){
   const rows = filteredRows();
@@ -1014,15 +1016,32 @@ function splitCustomer(raw){
   return { name, phone, address: addr.length?addr.join(", "):null };
 }
 function renderNew(){
-  if(!NR.length) NR = [blankRow(), blankRow()];
-  ensureBlank();
-  const accOpts = S.sellAccs.filter(a=>a.active!==false).map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join("");
-  const tOpts = S.templates.filter(t=>t.active!==false).map(t=>`<option value="${t.id}">${esc((t.code?t.code+" · ":"")+t.name)}</option>`).join("");
   $("#view").innerHTML = `
   <div class="spread mb"><div><h1>＋ Thêm đơn mới <span class="badge b-blue">nhập nhanh dạng Excel</span></h1>
     <p class="sub">Bố cục cột giữ như Excel, cuộn ngang để nhập tiếp · Đã tự gán: Platform = <b>TTS</b>, Shipped by = <b>TikTok Shipping</b>, Seller = <b>${esc(S.me.full_name)}</b> · ô <span class="badge b-green">xanh</span> auto-fill từ Template</p></div>
     <div class="flex"><button class="btn" onclick="go('orders')">← Về danh sách đơn</button><button class="btn" onclick="pasteImport()">📋 Dán từ Excel</button><button class="btn btn-p" onclick="saveNewRows()">💾 Lưu tất cả</button></div></div>
-  <div class="tw" style="max-height:calc(100vh - 200px)"><table class="sheet">
+  ${newSheetHTML()}
+  <p class="small muted mt">💡 Luôn sẵn 2 dòng trống cuối bảng — gõ gần hết tự sinh thêm, không cần bấm nút. Cùng 1 Order ID nhập nhiều dòng = đơn nhiều sản phẩm (tự gộp khi lưu). Order ID đã có trong hệ thống → sản phẩm được THÊM vào đơn cũ, không tạo trùng.</p>
+  ${recentOrdersHTML()}`;
+  wireNewSheet();
+}
+function recentOrdersHTML(){
+  const recent=[...S.orders].sort((a,b)=>String(b.created_at||b.order_date||"").localeCompare(String(a.created_at||a.order_date||""))).slice(0,20);
+  if(!recent.length) return `<div class="card mt"><p class="muted">Chưa có đơn nào. Nhập ở bảng trên rồi bấm 💾 Lưu tất cả — đơn sẽ hiện ở đây.</p></div>`;
+  return `<div class="card mt"><div class="spread mb"><h3>🕒 Đơn gần đây <span class="badge b-blue">${S.orders.length} đơn</span></h3><button class="btn btn-sm" onclick="go('orders')">Xem tất cả →</button></div>
+  <div class="tw"><table><tr><th>Ngày</th><th>Order ID</th><th>Khách</th><th class="center">SP</th><th>TK bán</th><th>Tracking</th></tr>
+  ${recent.map(o=>{ const its=S.items.filter(x=>x.order_id===o.id); const trk=its.map(x=>x.tracking_number).filter(Boolean)[0]||""; return `<tr>
+    <td class="small nowrap">${esc(o.order_date||"")}</td>
+    <td class="nowrap"><a href="#" onclick="openOrder('${o.id}');return false">${esc(o.platform_order_id||"")}</a></td>
+    <td>${esc(o.customer_name||"")}</td><td class="center">${its.length}</td>
+    <td class="small">${esc(sellerName(o))}</td><td class="small nowrap">${trk?esc(trk):'<span class="muted">—</span>'}</td></tr>`; }).join("")}
+  </table></div></div>`;
+}
+function newSheetHTML(){
+  if(!NR.length) NR=[blankRow(),blankRow()]; ensureBlank();
+  const accOpts = S.sellAccs.filter(a=>a.active!==false).map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join("");
+  const tOpts = S.templates.filter(t=>t.active!==false).map(t=>`<option value="${t.id}">${esc((t.code?t.code+" · ":"")+t.name)}</option>`).join("");
+  return `<div class="tw" style="max-height:60vh"><table class="sheet">
     <tr class="thgroup"><th></th><th colspan="4">📋 Thông tin đơn hàng</th><th>👤 Khách</th><th colspan="8">👕 Thông tin sản phẩm</th><th colspan="4">🎨 Thiết kế sản phẩm</th><th></th><th></th></tr>
     <tr><th>#</th>
     <th>Ngày Order</th><th style="min-width:150px">Order ID *</th><th style="min-width:85px">TK bán hàng</th><th style="min-width:130px">Link Label (TTS)</th>
@@ -1051,23 +1070,11 @@ function renderNew(){
       <td><input data-i="${i}" data-k="design" value="${esc(r.design)}" placeholder="link drive…"></td>
       <td><select data-i="${i}" data-k="conf"><option value="0">—</option><option value="1" ${r.conf==="1"?"selected":""}>Done</option></select></td>
       <td><input data-i="${i}" data-k="note" value="${esc(r.note)}"></td>
-      <td class="center"><button class="btn btn-sm btn-danger" tabindex="-1" onclick="NR.splice(${i},1);renderNew()">✕</button></td>
+      <td class="center"><button class="btn btn-sm btn-danger" tabindex="-1" onclick="NR.splice(${i},1);rerenderNewHost()">✕</button></td>
     </tr>`).join("")}
-  </table></div>
-  <p class="small muted mt">💡 Luôn sẵn 2 dòng trống cuối bảng — gõ gần hết tự sinh thêm, không cần bấm nút. Cùng 1 Order ID nhập nhiều dòng = đơn nhiều sản phẩm (tự gộp khi lưu). Order ID đã có trong hệ thống → sản phẩm được THÊM vào đơn cũ, không tạo trùng.</p>
-  ${(()=>{
-    const recent=[...S.orders].sort((a,b)=>String(b.created_at||b.order_date||"").localeCompare(String(a.created_at||a.order_date||""))).slice(0,20);
-    if(!recent.length) return `<div class="card mt"><p class="muted">Chưa có đơn nào. Nhập ở bảng trên rồi bấm 💾 Lưu tất cả — đơn sẽ hiện ở đây.</p></div>`;
-    return `<div class="card mt"><div class="spread mb"><h3>🕒 Đơn gần đây <span class="badge b-blue">${S.orders.length} đơn</span></h3><button class="btn btn-sm" onclick="go('orders')">Xem tất cả →</button></div>
-    <div class="tw"><table><tr><th>Ngày</th><th>Order ID</th><th>Khách</th><th class="center">SP</th><th>TK bán</th><th>Tracking</th></tr>
-    ${recent.map(o=>{ const its=S.items.filter(x=>x.order_id===o.id); const trk=its.map(x=>x.tracking_number).filter(Boolean)[0]||""; return `<tr>
-      <td class="small nowrap">${esc(o.order_date||"")}</td>
-      <td class="nowrap"><a href="#" onclick="openOrder('${o.id}');return false">${esc(o.platform_order_id||"")}</a></td>
-      <td>${esc(o.customer_name||"")}</td><td class="center">${its.length}</td>
-      <td class="small">${esc(sellerName(o))}</td><td class="small nowrap">${trk?esc(trk):'<span class="muted">—</span>'}</td></tr>`; }).join("")}
-    </table></div></div>`;
-  })()}`;
-
+  </table></div>`;
+}
+function wireNewSheet(){
   $$("#view .sheet select, #view .sheet input").forEach(el=>{
     const setVal = (i,k,v)=>{
       if(k==="factname") return;
@@ -1075,11 +1082,11 @@ function renderNew(){
         NR[i].tmpl = v;
         const t = maps.template[v];
         if(t){ NR[i].ptype = t.product_type||""; NR[i].fact = t.factory_id||""; NR[i].dim = t.dimension||""; }
-        renderNew(); return;
+        rerenderNewHost(); return;
       }
       NR[i][k] = k==="qty" ? (Number(v)||1) : v;
       const before = NR.length; ensureBlank();
-      if(NR.length !== before) renderNew();
+      if(NR.length !== before) rerenderNewHost();
     };
     if(el.tagName==="SELECT"){
       const i=+el.dataset.i, k=el.dataset.k;
@@ -1092,6 +1099,9 @@ function renderNew(){
     }
   });
 }
+function rerenderNewHost(){ if(S.view==='orders' && S.showNew) renderOrders(); else renderNew(); }
+function toggleNewPanel(){ S.showNew=!S.showNew; if(S.showNew && !NR.length) NR=[blankRow(),blankRow()]; renderOrders(); }
+
 function pasteImport(){
   openModal(`<div class="spread mb"><h2>Dán nhiều dòng từ Excel</h2><button class="btn btn-sm" onclick="closeModal()">✕</button></div>
   <p class="small muted">Mỗi dòng = 1 sản phẩm. Cột cách nhau bằng <b>Tab</b> (copy thẳng từ Excel). Thứ tự:
