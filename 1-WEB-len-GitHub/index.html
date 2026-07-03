@@ -198,7 +198,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.5</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.6</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -822,7 +822,7 @@ function renderOrders(){
     <p class="sub">${rows.length} dòng SP · ${new Set(rows.map(r=>r.o.id)).size} đơn · <b>bấm vào dòng</b> để xem chi tiết · ✏️ Sửa nhanh để sửa tại chỗ · ⚙ Cột để ẩn/hiện</p></div>
     <div class="flex"><button class="btn btn-p" onclick="toggleNewPanel()">${S.showNew?"✕ Đóng thêm đơn":"＋ Thêm đơn mới"}</button><button class="btn" onclick="exportOrdersCsv()">⇩ Xuất Excel</button></div></div>
   ${periodBar()}
-  ${S.showNew?`<div class="card mb" style="border:2px solid #0284c7"><div class="spread mb"><div><h3 style="margin:0">＋ Thêm đơn mới</h3><span class="small muted">Nhập ở đây · copy thông tin từ danh sách đơn bên dưới nếu cần</span></div><div class="flex"><button class="btn" onclick="importTTS()">📥 Nạp Excel TTS</button><button class="btn" onclick="pasteImport()">📋 Dán tay</button><button class="btn btn-p" onclick="saveNewRows()">💾 Lưu tất cả</button><button class="btn btn-sm" onclick="toggleNewPanel()">Thu gọn ▲</button></div></div>${newSheetHTML()}</div>`:""}
+  ${S.showNew?`<div class="card mb" style="border:2px solid #0284c7"><div class="spread mb"><div><h3 style="margin:0">＋ Thêm đơn mới</h3><span class="small muted">Nhập ở đây · <b>Ctrl+D</b> chép ô trên xuống · dán cả cột từ Excel bằng <b>Ctrl+V</b> · copy từ danh sách dưới nếu cần</span></div><div class="flex"><button class="btn" onclick="importTTS()">📥 Nạp Excel TTS</button><button class="btn" onclick="pasteImport()">📋 Dán tay</button><button class="btn btn-p" onclick="saveNewRows()">💾 Lưu tất cả</button><button class="btn btn-sm" onclick="toggleNewPanel()">Thu gọn ▲</button></div></div>${newSheetHTML()}</div>`:""}
   <div class="card mb"><div class="flex">
     <input id="fQ" placeholder="🔍 Order ID / khách / note / color / tracking..." style="flex:1;min-width:220px" value="${esc(f.q)}">
     <input id="fSeller" list="dl_fseller" value="${esc(f.seller||'')}" placeholder="Tất cả seller" autocomplete="off" style="min-width:130px"><datalist id="dl_fseller">${sellers.map(s=>`<option value="${esc(s)}">`).join("")}</datalist>
@@ -1097,6 +1097,36 @@ function blankRow(){ return { order_id:"", date:today(), acc:"", label:"", cust:
 function rowHasData(r){ return !!(r.order_id||r.cust||r.tmpl||r.size||r.color||r.design||r.label||r.sku); }
 function ensureBlank(){ while(NR.length<2 || rowHasData(NR[NR.length-1]) || rowHasData(NR[NR.length-2])){ const r=blankRow(); const prev=NR[NR.length-1]; if(prev){ r.date=prev.date; r.acc=prev.acc; r.accname=prev.accname; } NR.push(r); } }
 function copyRowDown(i){ if(i<=0)return; const p=NR[i-1],r=NR[i]; if(!p)return; r.date=p.date;r.acc=p.acc;r.accname=p.accname;r.tmpl=p.tmpl;r.tmplname=p.tmplname;r.ptype=p.ptype;r.fact=p.fact;r.dim=p.dim; rerenderNewHost(); }
+function _tDispG(t){ return (t.code?t.code+" · ":"")+t.name; }
+function setFieldValue(i,k,v){
+  if(k==="date"){ NR[i].date = ttsDate(v)||v; return; }
+  if(k==="accname"){ NR[i].accname=v; const a=S.sellAccs.find(x=>x.name===v); NR[i].acc=a?a.id:""; return; }
+  if(k==="tmplname"){ NR[i].tmplname=v; const t=S.templates.find(x=>_tDispG(x)===v); if(t){NR[i].tmpl=t.id;NR[i].ptype=t.product_type||"";NR[i].fact=t.factory_id||"";NR[i].dim=t.dimension||"";} else NR[i].tmpl=""; return; }
+  if(k==="qty"){ NR[i].qty=Number(v)||1; return; }
+  if(k==="factname"||k==="ptype"||k==="dim"){ NR[i][k]=v; return; }
+  NR[i][k]=v;
+}
+function fillDown(i,k){
+  if(i<=0){ toast("Dòng đầu không có dòng trên để chép.",true); return; }
+  const prev=NR[i-1];
+  if(k==="accname"){ NR[i].acc=prev.acc; NR[i].accname=prev.accname; }
+  else if(k==="tmplname"){ NR[i].tmpl=prev.tmpl; NR[i].tmplname=prev.tmplname; NR[i].ptype=prev.ptype; NR[i].fact=prev.fact; NR[i].dim=prev.dim; }
+  else if(k==="date"){ NR[i].date=prev.date; }
+  else if(k==="conf"){ NR[i].conf=prev.conf; }
+  else { NR[i][k]=prev[k]; }
+  rerenderNewHost();
+  setTimeout(()=>{ const el=document.querySelector(`#view .sheet [data-i="${i}"][data-k="${k}"]`); if(el){ el.focus(); try{el.select&&el.select()}catch(_){} } },0);
+}
+function pasteColumn(ev, el){
+  const txt=(ev.clipboardData||window.clipboardData).getData("text"); if(!txt || !/\r?\n/.test(txt)) return;
+  ev.preventDefault();
+  const vals=txt.replace(/\r/g,"").split("\n"); if(vals.length && vals[vals.length-1]==="") vals.pop();
+  const i0=+el.dataset.i, k=el.dataset.k;
+  vals.forEach((v,off)=>{ const i=i0+off; while(NR.length<=i) NR.push(blankRow()); setFieldValue(i,k,v.trim()); });
+  ensureBlank(); rerenderNewHost();
+  setTimeout(()=>{ const e2=document.querySelector(`#view .sheet [data-i="${i0}"][data-k="${k}"]`); if(e2) e2.focus(); },0);
+  toast(`Đã dán ${vals.length} dòng vào cột.`);
+}
 function copyColDown(i){ const p=NR[i]; if(!p)return; for(let j=i+1;j<NR.length;j++){ if(!NR[j].order_id.trim()) continue; NR[j].date=p.date;NR[j].acc=p.acc;NR[j].accname=p.accname;NR[j].tmpl=p.tmpl;NR[j].tmplname=p.tmplname;NR[j].ptype=p.ptype;NR[j].fact=p.fact;NR[j].dim=p.dim; } rerenderNewHost(); toast("Đã chép xuống các dòng dưới."); }
 function dupBadge(oid){ oid=(oid||"").trim(); if(!oid)return ""; return S.orders.some(o=>o.platform==="TTS"&&o.platform_order_id===oid)?' <span class="badge b-yellow" title="Order ID đã có — sản phẩm sẽ THÊM vào đơn cũ, không tạo trùng">đã có</span>':""; }
 function custPreview(v){ if(!v||!v.trim())return ""; const c=splitCustomer(v); const a=[c.name?"👤"+c.name:"",c.phone?"📞"+c.phone:"",c.address?"📍"+c.address:""].filter(Boolean); return a.length?esc(a.join(" · ")):'<span class="sla-red">chưa tách được — sửa lại</span>'; }
@@ -1199,7 +1229,9 @@ function wireNewSheet(){
       el.addEventListener("change", e=> setVal(+e.target.dataset.i, e.target.dataset.k, e.target.value));
     } else {
       el.addEventListener("input", e=> setVal(+e.target.dataset.i, e.target.dataset.k, e.target.value));
+      el.addEventListener("paste", ev=> pasteColumn(ev, el));
     }
+    el.addEventListener("keydown", ev=>{ if((ev.ctrlKey||ev.metaKey) && (ev.key==="d"||ev.key==="D")){ ev.preventDefault(); fillDown(+el.dataset.i, el.dataset.k); } });
   });
 }
 function rerenderNewHost(){ if(S.view==='orders' && S.showNew) renderOrders(); else renderNew(); }
