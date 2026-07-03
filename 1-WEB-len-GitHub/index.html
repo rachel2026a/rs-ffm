@@ -1054,7 +1054,19 @@ function renderNew(){
       <td class="center"><button class="btn btn-sm btn-danger" tabindex="-1" onclick="NR.splice(${i},1);renderNew()">✕</button></td>
     </tr>`).join("")}
   </table></div>
-  <p class="small muted mt">💡 Luôn sẵn 2 dòng trống cuối bảng — gõ gần hết tự sinh thêm, không cần bấm nút. Cùng 1 Order ID nhập nhiều dòng = đơn nhiều sản phẩm (tự gộp khi lưu). Order ID đã có trong hệ thống → sản phẩm được THÊM vào đơn cũ, không tạo trùng.</p>`;
+  <p class="small muted mt">💡 Luôn sẵn 2 dòng trống cuối bảng — gõ gần hết tự sinh thêm, không cần bấm nút. Cùng 1 Order ID nhập nhiều dòng = đơn nhiều sản phẩm (tự gộp khi lưu). Order ID đã có trong hệ thống → sản phẩm được THÊM vào đơn cũ, không tạo trùng.</p>
+  ${(()=>{
+    const recent=[...S.orders].sort((a,b)=>String(b.created_at||b.order_date||"").localeCompare(String(a.created_at||a.order_date||""))).slice(0,20);
+    if(!recent.length) return `<div class="card mt"><p class="muted">Chưa có đơn nào. Nhập ở bảng trên rồi bấm 💾 Lưu tất cả — đơn sẽ hiện ở đây.</p></div>`;
+    return `<div class="card mt"><div class="spread mb"><h3>🕒 Đơn gần đây <span class="badge b-blue">${S.orders.length} đơn</span></h3><button class="btn btn-sm" onclick="go('orders')">Xem tất cả →</button></div>
+    <div class="tw"><table><tr><th>Ngày</th><th>Order ID</th><th>Khách</th><th class="center">SP</th><th>TK bán</th><th>Tracking</th></tr>
+    ${recent.map(o=>{ const its=S.items.filter(x=>x.order_id===o.id); const trk=its.map(x=>x.tracking_number).filter(Boolean)[0]||""; return `<tr>
+      <td class="small nowrap">${esc(o.order_date||"")}</td>
+      <td class="nowrap"><a href="#" onclick="openOrder('${o.id}');return false">${esc(o.platform_order_id||"")}</a></td>
+      <td>${esc(o.customer_name||"")}</td><td class="center">${its.length}</td>
+      <td class="small">${esc(sellerName(o))}</td><td class="small nowrap">${trk?esc(trk):'<span class="muted">—</span>'}</td></tr>`; }).join("")}
+    </table></div></div>`;
+  })()}`;
 
   $$("#view .sheet select, #view .sheet input").forEach(el=>{
     const setVal = (i,k,v)=>{
