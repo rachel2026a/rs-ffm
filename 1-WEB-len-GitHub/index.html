@@ -105,6 +105,9 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 .otbl th,.otbl td{padding-top:9px;padding-bottom:9px}
 .otbl .thgroup th{padding:7px 10px;font-weight:700;font-size:11.5px;border-bottom:1px solid #d9e1ea}
 .otbl tbody tr:hover td{filter:brightness(.97)}
+.sheet{font-size:12px}
+.sheet td,.sheet th{padding:4px 6px}
+.sheet td input:not([type=checkbox]),.sheet td select{width:100%;min-width:0;box-sizing:border-box}
 .sheet .xbtn{display:inline-block;padding:1px 6px;margin-left:3px;background:#0284c7;color:#fff;border:none;border-radius:5px;font-size:12px;font-weight:700;cursor:pointer;line-height:1.5;vertical-align:middle}
 .sheet .xbtn:hover{background:#0369a1}
 #nav .navgroup{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:#6b7a90;padding:12px 12px 4px;font-weight:600}
@@ -195,7 +198,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.2</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.5</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -822,15 +825,15 @@ function renderOrders(){
   ${S.showNew?`<div class="card mb" style="border:2px solid #0284c7"><div class="spread mb"><div><h3 style="margin:0">＋ Thêm đơn mới</h3><span class="small muted">Nhập ở đây · copy thông tin từ danh sách đơn bên dưới nếu cần</span></div><div class="flex"><button class="btn" onclick="importTTS()">📥 Nạp Excel TTS</button><button class="btn" onclick="pasteImport()">📋 Dán tay</button><button class="btn btn-p" onclick="saveNewRows()">💾 Lưu tất cả</button><button class="btn btn-sm" onclick="toggleNewPanel()">Thu gọn ▲</button></div></div>${newSheetHTML()}</div>`:""}
   <div class="card mb"><div class="flex">
     <input id="fQ" placeholder="🔍 Order ID / khách / note / color / tracking..." style="flex:1;min-width:220px" value="${esc(f.q)}">
-    <select id="fSeller"><option value="">Tất cả seller</option>${sellers.map(s=>`<option ${f.seller===s?"selected":""}>${esc(s)}</option>`).join("")}</select>
-    <select id="fFactory"><option value="">Tất cả xưởng</option>${S.factories.map(x=>`<option value="${x.id}" ${f.factory===x.id?"selected":""}>${esc(x.name)}</option>`).join("")}</select>
+    <input id="fSeller" list="dl_fseller" value="${esc(f.seller||'')}" placeholder="Tất cả seller" autocomplete="off" style="min-width:130px"><datalist id="dl_fseller">${sellers.map(s=>`<option value="${esc(s)}">`).join("")}</datalist>
+    <input id="fFactory" list="dl_ffactory" value="${esc(f.factory&&maps.factory[f.factory]?maps.factory[f.factory].name:'')}" placeholder="Tất cả xưởng" autocomplete="off" style="min-width:150px"><datalist id="dl_ffactory">${S.factories.map(x=>`<option value="${esc(x.name)}">`).join("")}</datalist>
     <select id="fStatus"><option value="">Mọi trạng thái</option>${Object.entries(STATUS_VI).map(([k,v])=>`<option value="${k}" ${f.status===k?"selected":""}>${v}</option>`).join("")}</select>
     <label class="flex" style="margin:0"><input type="checkbox" id="fMulti" ${f.multi?"checked":""} style="width:auto"> Đơn nhiều SP</label>
     <button class="btn btn-sm" onclick="batchLookup()">📋 Dán nhiều mã (đối soát)</button>
     <button class="btn btn-sm" onclick="S.filters={q:'',seller:'',factory:'',status:'',multi:false,special:'',dateFrom:'',dateTo:'',account:'',sort:'date',sortDir:'desc',batch:null};S.page=1;renderOrders()">Xóa lọc</button>
   </div>
   <div class="flex mt" style="gap:8px;flex-wrap:wrap">
-    <select id="fAcc"><option value="">Tất cả TK bán</option>${S.sellAccs.map(a=>`<option value="${a.id}" ${f.account===a.id?"selected":""}>${esc(a.name)}</option>`).join("")}</select>
+    <input id="fAcc" list="dl_facc" value="${esc(f.account&&maps.sellAcc[f.account]?maps.sellAcc[f.account].name:'')}" placeholder="Tất cả TK bán" autocomplete="off" style="min-width:130px"><datalist id="dl_facc">${S.sellAccs.map(a=>`<option value="${esc(a.name)}">`).join("")}</datalist>
     <select id="fSort"><option value="date" ${f.sort==="date"?"selected":""}>Sắp xếp: Ngày</option><option value="sla" ${f.sort==="sla"?"selected":""}>Sắp xếp: SLA</option><option value="cost" ${f.sort==="cost"?"selected":""}>Sắp xếp: Chi phí</option></select>
     <button class="btn btn-sm" onclick="S.filters.sortDir=S.filters.sortDir==='asc'?'desc':'asc';renderOrders()">${f.sortDir==="asc"?"↑ Tăng dần":"↓ Giảm dần"}</button>
     <button class="btn btn-sm" onclick="colMenu()">⚙ Cột</button>
@@ -867,7 +870,7 @@ function renderOrders(){
       <td class="oc-link nowrap">${em&&it?`<input id="g_listing_link_${it.id}" value="${esc(it.listing_link||'')}" onchange="gridSave('${it.id}')" ${dS} placeholder="link" style="width:100px">`:(it?.listing_link?`<a href="${esc(it.listing_link)}" target="_blank" title="${esc(it.listing_link)}">🔗</a> <span class="cpy" data-copy="${esc(it.listing_link)}" title="Copy link SP" style="cursor:pointer">📋</span>`:"")}</td>
       <td class="oc-size nowrap">${em&&it?`<input id="g_size_${it.id}" value="${esc(it.size||'')}" onchange="gridSave('${it.id}')" ${dS} style="width:52px">`:esc(it?.size||"")}</td><td class="oc-color nowrap">${em&&it?`<input id="g_color_${it.id}" value="${esc(it.color||'')}" onchange="gridSave('${it.id}')" ${dS} style="width:64px">`:esc(it?.color||"")}</td><td class="oc-sl center">${em&&it?`<input type="number" min="1" id="g_quantity_${it.id}" value="${it.quantity||1}" onchange="gridSave('${it.id}')" ${dS} style="width:46px">`:(it?.quantity??"")}</td>
       <td class="oc-design center">${em&&it?`<input id="g_design_link_${it.id}" value="${esc(it.design_link||'')}" onchange="gridSave('${it.id}')" ${dS} placeholder="link" style="width:90px">`:(it?.design_link?`<a href="${esc(it.design_link)}" target="_blank">🔗</a>`:"")}</td>
-      <td class="oc-conf center">${em&&it?`<select id="g_confirm_design_${it.id}" onchange="gridSave('${it.id}')" ${dS} style="width:52px"><option value="0" ${!it.confirm_design?"selected":""}>—</option><option value="1" ${it.confirm_design?"selected":""}>✓</option></select>`:(it? (it.confirm_design?'<span class="b-green badge">✓</span>':'<span class="muted">—</span>'):"")}</td>
+      <td class="oc-conf center">${em&&it?`<select id="g_confirm_design_${it.id}" onchange="gridSave('${it.id}')" ${dS} style="width:88px"><option value="0" ${(!it.confirm_design&&!it.needs_fix)?"selected":""}>—</option><option value="1" ${it.confirm_design?"selected":""}>✓ Done</option><option value="2" ${it.needs_fix?"selected":""}>Need Fix</option></select>`:(it? (it.needs_fix?'<span class="badge b-red">Fix</span>':(it.confirm_design?'<span class="b-green badge">✓</span>':'<span class="muted">—</span>')):"")}</td>
       <td class="oc-factory nowrap">${esc(it?.factory_id && maps.factory[it.factory_id]?.name || "")}</td>
       <td class="oc-offm nowrap small">${em&&it?`<input id="g_factory_order_id_${it.id}" value="${esc(it.factory_order_id||'')}" onchange="gridSave('${it.id}')" ${dF} style="width:100px">`:esc(it?.factory_order_id||"")}</td>
       <td class="oc-track nowrap">${em&&it?`<input id="g_tracking_number_${it.id}" value="${esc(it.tracking_number||'')}" onchange="gridSave('${it.id}')" ${dT} style="width:120px">`:(()=>{const tk=it?.tracking_number||o.tracking_number||"";return tk?`<span class="clip" style="max-width:110px" title="${esc(tk)}">${esc(tk)}</span> <span class="cpy" data-copy="${esc(tk)}" title="Copy tracking" style="cursor:pointer">📋</span>`:"";})()}</td>
@@ -888,11 +891,11 @@ function renderOrders(){
   <button class="btn btn-sm" ${S.page>=pages?"disabled":""} onclick="S.page++;renderOrders()">Sau →</button></div>`;
 
   $("#fQ").oninput = debounce(e=>{ S.filters.q=e.target.value; S.page=1; renderOrders(); const el=$("#fQ"); el.focus(); el.setSelectionRange(el.value.length,el.value.length); },350);
-  $("#fSeller").onchange = e=>{ S.filters.seller=e.target.value; S.page=1; renderOrders(); };
-  $("#fFactory").onchange = e=>{ S.filters.factory=e.target.value; S.page=1; renderOrders(); };
+  $("#fSeller").onchange = e=>{ S.filters.seller=e.target.value.trim(); S.page=1; renderOrders(); };
+  $("#fFactory").onchange = e=>{ const x=S.factories.find(z=>z.name===e.target.value.trim()); S.filters.factory=x?x.id:""; S.page=1; renderOrders(); };
   $("#fStatus").onchange = e=>{ S.filters.status=e.target.value; S.page=1; renderOrders(); };
   $("#fMulti").onchange = e=>{ S.filters.multi=e.target.checked; S.page=1; renderOrders(); };
-  $("#fAcc").onchange  = e=>{ S.filters.account=e.target.value; S.page=1; renderOrders(); };
+  $("#fAcc").onchange  = e=>{ const a=S.sellAccs.find(z=>z.name===e.target.value.trim()); S.filters.account=a?a.id:""; S.page=1; renderOrders(); };
   $("#fSort").onchange = e=>{ S.filters.sort=e.target.value; renderOrders(); };
   $$("#view .cpy").forEach(el=> el.onclick = ()=> copyText(el.getAttribute("data-copy")));
   if(S.showNew) wireNewSheet();
@@ -1094,6 +1097,7 @@ function blankRow(){ return { order_id:"", date:today(), acc:"", label:"", cust:
 function rowHasData(r){ return !!(r.order_id||r.cust||r.tmpl||r.size||r.color||r.design||r.label||r.sku); }
 function ensureBlank(){ while(NR.length<2 || rowHasData(NR[NR.length-1]) || rowHasData(NR[NR.length-2])){ const r=blankRow(); const prev=NR[NR.length-1]; if(prev){ r.date=prev.date; r.acc=prev.acc; r.accname=prev.accname; } NR.push(r); } }
 function copyRowDown(i){ if(i<=0)return; const p=NR[i-1],r=NR[i]; if(!p)return; r.date=p.date;r.acc=p.acc;r.accname=p.accname;r.tmpl=p.tmpl;r.tmplname=p.tmplname;r.ptype=p.ptype;r.fact=p.fact;r.dim=p.dim; rerenderNewHost(); }
+function copyColDown(i){ const p=NR[i]; if(!p)return; for(let j=i+1;j<NR.length;j++){ if(!NR[j].order_id.trim()) continue; NR[j].date=p.date;NR[j].acc=p.acc;NR[j].accname=p.accname;NR[j].tmpl=p.tmpl;NR[j].tmplname=p.tmplname;NR[j].ptype=p.ptype;NR[j].fact=p.fact;NR[j].dim=p.dim; } rerenderNewHost(); toast("Đã chép xuống các dòng dưới."); }
 function dupBadge(oid){ oid=(oid||"").trim(); if(!oid)return ""; return S.orders.some(o=>o.platform==="TTS"&&o.platform_order_id===oid)?' <span class="badge b-yellow" title="Order ID đã có — sản phẩm sẽ THÊM vào đơn cũ, không tạo trùng">đã có</span>':""; }
 function custPreview(v){ if(!v||!v.trim())return ""; const c=splitCustomer(v); const a=[c.name?"👤"+c.name:"",c.phone?"📞"+c.phone:"",c.address?"📍"+c.address:""].filter(Boolean); return a.length?esc(a.join(" · ")):'<span class="sla-red">chưa tách được — sửa lại</span>'; }
 /* Tách "Customer Info" gộp 1 ô (giống Excel) -> name / phone / address */
@@ -1142,16 +1146,16 @@ function newSheetHTML(){
   const dls = `<datalist id="dl_acc">${S.sellAccs.filter(a=>a.active!==false).map(a=>`<option value="${esc(a.name)}">`).join("")}</datalist>
   <datalist id="dl_tmpl">${S.templates.filter(t=>t.active!==false).map(t=>`<option value="${esc(tDisp(t))}">`).join("")}</datalist>`;
   return `${dls}<div class="tw" style="max-height:60vh"><table class="sheet">
-    <tr class="thgroup"><th></th><th colspan="6">📋 Thông tin đơn hàng</th><th>👤 Khách</th><th colspan="8">👕 Thông tin sản phẩm</th><th colspan="4">🎨 Thiết kế sản phẩm</th><th></th></tr>
+    <tr class="thgroup"><th></th><th colspan="6">📋 Thông tin đơn hàng</th><th>👤 Khách</th><th colspan="5">👕 Sản phẩm</th><th colspan="4">🎨 Thiết kế</th><th></th></tr>
     <tr><th>#</th>
-    <th>Ngày Order</th><th style="min-width:150px">Order ID *</th><th style="min-width:85px">TK bán hàng</th><th style="min-width:100px">Seller Note</th><th style="min-width:130px">Link Label (TTS)</th><th style="min-width:130px">🚚 Tracking (nếu có)</th>
-    <th style="min-width:170px">Customer Info (Tên - SĐT - Địa chỉ)</th>
-    <th style="min-width:210px">Template</th><th style="min-width:125px">Product Type ⚙</th><th style="min-width:85px">Nhà in/Xưởng ⚙</th><th style="min-width:85px">Dimension ⚙</th>
-    <th style="min-width:85px">Phôi/SKU</th><th style="min-width:60px">Size</th><th style="min-width:70px">Color</th><th style="min-width:44px">SL</th>
-    <th style="min-width:120px">Link sản phẩm</th><th style="min-width:95px">Order Design</th><th style="min-width:120px">File Design</th><th>Confirm</th>
+    <th>Ngày</th><th style="min-width:112px">Order ID *</th><th style="min-width:68px">TK bán</th><th style="min-width:78px">Note</th><th style="min-width:98px">Link Label</th><th style="min-width:98px">🚚 Tracking</th>
+    <th style="min-width:130px">Khách</th>
+    <th style="min-width:150px">Template</th>
+    <th style="min-width:68px">Phôi/SKU</th><th style="min-width:46px">Size</th><th style="min-width:54px">Color</th><th style="min-width:38px">SL</th>
+    <th style="min-width:78px">Link SP</th><th style="min-width:78px">Order Design</th><th style="min-width:88px">File Design</th><th>Confirm</th>
     <th></th></tr>
     ${NR.map((r,i)=>`<tr>
-      <td class="muted center">${i+1}${i>0?`<br><button class="btn btn-sm" tabindex="-1" title="Chép Ngày/TK bán/Template từ dòng trên" onclick="copyRowDown(${i})" style="padding:0 5px;margin-top:2px">⤵</button>`:""}</td>
+      <td class="muted center">${i+1}${i>0?`<br><button class="btn btn-sm" tabindex="-1" title="Chép Ngày/TK bán/Template từ dòng trên" onclick="copyRowDown(${i})" style="padding:0 5px;margin-top:2px">⤵</button>`:""}<button class="btn btn-sm" tabindex="-1" title="Chép Ngày/TK bán/Template của dòng này xuống MỌI dòng dưới có Order ID" onclick="copyColDown(${i})" style="padding:0 5px;margin-top:2px">⤓</button></td>
       <td><input data-i="${i}" data-k="date" type="date" value="${r.date}"></td>
       <td class="nowrap"><input data-i="${i}" data-k="order_id" value="${esc(r.order_id)}" placeholder="57738…"><span id="dupflag_${i}">${dupBadge(r.order_id)}</span></td>
       <td><input data-i="${i}" data-k="accname" list="dl_acc" value="${esc(r.accname!=null?r.accname:(r.acc&&maps.sellAcc[r.acc]?maps.sellAcc[r.acc].name:''))}" placeholder="gõ shop…" style="min-width:85px" autocomplete="off"></td>
@@ -1159,10 +1163,7 @@ function newSheetHTML(){
       <td><input data-i="${i}" data-k="label" value="${esc(r.label)}" placeholder="https://cdn.cotik.app/…"></td>
       <td class="nowrap"><input data-i="${i}" data-k="tracking" value="${esc(r.tracking||'')}" placeholder="mã vận đơn"></td>
       <td><input data-i="${i}" data-k="cust" value="${esc(r.cust)}" placeholder="Tên - (+1)SĐT - Địa chỉ"><div class="small muted" id="custpv_${i}" style="max-width:180px;line-height:1.3">${custPreview(r.cust)}</div></td>
-      <td><input data-i="${i}" data-k="tmplname" list="dl_tmpl" value="${esc(r.tmplname!=null?r.tmplname:(r.tmpl&&maps.template[r.tmpl]?tDisp(maps.template[r.tmpl]):''))}" placeholder="gõ mã/tên…" style="min-width:200px" autocomplete="off"></td>
-      <td class="cell-auto"><input data-i="${i}" data-k="ptype" value="${esc(r.ptype)}"></td>
-      <td class="cell-auto"><input data-i="${i}" data-k="factname" value="${esc(r.fact && maps.factory[r.fact]?.name || "")}" readonly tabindex="-1"></td>
-      <td class="cell-auto"><input data-i="${i}" data-k="dim" value="${esc(r.dim)}"></td>
+      <td><input data-i="${i}" data-k="tmplname" list="dl_tmpl" value="${esc(r.tmplname!=null?r.tmplname:(r.tmpl&&maps.template[r.tmpl]?tDisp(maps.template[r.tmpl]):''))}" placeholder="gõ mã/tên…" style="min-width:145px" autocomplete="off"><div class="small muted" id="autoh_${i}" style="line-height:1.2">${r.tmpl?[r.ptype,(r.fact&&maps.factory[r.fact]?maps.factory[r.fact].name:''),r.dim].filter(Boolean).join(' · '):''}</div></td>
       <td><input data-i="${i}" data-k="sku" value="${esc(r.sku)}"></td>
       <td><input data-i="${i}" data-k="size" value="${esc(r.size)}"></td>
       <td><input data-i="${i}" data-k="color" value="${esc(r.color)}"></td>
@@ -1170,7 +1171,7 @@ function newSheetHTML(){
       <td><input data-i="${i}" data-k="listing" value="${esc(r.listing)}"></td>
       <td><input data-i="${i}" data-k="odesign" value="${esc(r.odesign)}"></td>
       <td><input data-i="${i}" data-k="design" value="${esc(r.design)}" placeholder="link drive…"></td>
-      <td><select data-i="${i}" data-k="conf"><option value="0">—</option><option value="1" ${r.conf==="1"?"selected":""}>Done</option></select></td>
+      <td><select data-i="${i}" data-k="conf"><option value="0" ${(!r.conf||r.conf==="0")?"selected":""}>—</option><option value="1" ${r.conf==="1"?"selected":""}>Done</option><option value="2" ${r.conf==="2"?"selected":""}>Need Fix</option></select></td>
       <td class="center"><button class="btn btn-sm btn-danger" tabindex="-1" onclick="NR.splice(${i},1);rerenderNewHost()">✕</button></td>
     </tr>`).join("")}
   </table></div>`;
@@ -1280,7 +1281,7 @@ async function saveNewRows(){
         product_type: r.ptype||null, factory_id: r.fact||null, dimension: r.dim||null,
         sku_phoi: r.sku||null, size: r.size||null, color: r.color||null, quantity: r.qty||1,
         listing_link: r.listing||null, order_design_code: r.odesign||null,
-        design_link: r.design||null, confirm_design: r.conf==="1", note: r.note||null,
+        design_link: r.design||null, confirm_design: r.conf==="1", needs_fix: r.conf==="2", note: r.note||null,
         tracking_number: r.tracking||null,
         source_line: existing + j + 1,
         item_status: r.tracking ? "has_tracking" : (r.conf==="1" ? "design_ok" : (r.design ? "waiting_design" : "new")),
@@ -2319,7 +2320,7 @@ async function gridSave(itemId){
     if(sOk){
       ["size","color","design_link","sku_phoi","listing_link","order_design_code"].forEach(f=>{ const v=val(f); if(v!==undefined) ip[f]=tr(v); });
       const qty=val("quantity"); if(qty!==undefined) ip.quantity=Number(qty)||1;
-      const cf=val("confirm_design"); if(cf!==undefined) ip.confirm_design=cf==="1";
+      const cf=val("confirm_design"); if(cf!==undefined){ ip.confirm_design=cf==="1"; ip.needs_fix=cf==="2"; }
     }
     if(fOk){
       ["factory_order_id","carrier"].forEach(f=>{ const v=val(f); if(v!==undefined) ip[f]=tr(v); });
