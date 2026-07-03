@@ -83,6 +83,8 @@ tr:hover td{background:var(--panel2)}
 #sidebar .logo b{color:#fff;font-size:14px;display:block}
 #sidebar .logo span{font-size:11px}
 #nav{flex:1;overflow-y:auto;padding:8px}
+.sheet .xbtn{display:inline-block;padding:1px 6px;margin-left:3px;background:#0284c7;color:#fff;border:none;border-radius:5px;font-size:12px;font-weight:700;cursor:pointer;line-height:1.5;vertical-align:middle}
+.sheet .xbtn:hover{background:#0369a1}
 #nav .navgroup{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:#6b7a90;padding:12px 12px 4px;font-weight:600}
 #nav .item{display:flex;gap:9px;align-items:center;padding:8px 10px;border-radius:8px;cursor:pointer;font-size:13px;margin-bottom:1px}
 #nav .item:hover{background:var(--sbactive)}
@@ -171,7 +173,7 @@ tr:hover td{background:var(--panel2)}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v1.1</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v1.2</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -453,9 +455,8 @@ const MENU = [
   { id:"dash",     icon:"🏠", label:"Tổng quan", grp:"Theo dõi" },
   { id:"todo",     icon:"✅", label:"Việc hôm nay", grp:"Theo dõi" },
   { id:"alerts",   icon:"🔔", label:"Cảnh báo", grp:"Theo dõi" },
-  { id:"new",      icon:"➕", label:"Nhập đơn", grp:"Đơn hàng" },
-  { id:"sheet",    icon:"🧾", label:"Đơn đang đi", grp:"Đơn hàng" },
   { id:"orders",   icon:"📦", label:"Đơn hàng", grp:"Đơn hàng" },
+  { id:"sheet",    icon:"🧾", label:"Đơn đang đi", grp:"Đơn hàng" },
   { id:"push",     icon:"🏭", label:"Đẩy xưởng", ffm:true, grp:"Đơn hàng" },
   { id:"tasks",    icon:"📝", label:"Giao việc", grp:"Vận hành" },
   { id:"finance",  icon:"💰", label:"Tài chính", ffm:true, grp:"Vận hành" },
@@ -731,7 +732,7 @@ function renderOrders(){
   $("#view").innerHTML = `
   <div class="spread mb"><div><h1>Đơn hàng</h1>
     <p class="sub">${rows.length} dòng sản phẩm · ${new Set(rows.map(r=>r.o.id)).size} đơn · bấm Order ID hoặc ✏️ để mở & sửa/cập nhật đơn</p></div>
-    <div class="flex"><button class="btn" onclick="exportOrdersCsv()">⇩ Xuất Excel</button></div></div>
+    <div class="flex"><button class="btn btn-p" onclick="go('new')">＋ Thêm đơn mới</button><button class="btn" onclick="exportOrdersCsv()">⇩ Xuất Excel</button></div></div>
   ${periodBar()}
   <div class="card mb"><div class="flex">
     <input id="fQ" placeholder="🔍 Order ID / khách / note / color / tracking..." style="flex:1;min-width:220px" value="${esc(f.q)}">
@@ -1018,9 +1019,9 @@ function renderNew(){
   const accOpts = S.sellAccs.filter(a=>a.active!==false).map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join("");
   const tOpts = S.templates.filter(t=>t.active!==false).map(t=>`<option value="${t.id}">${esc((t.code?t.code+" · ":"")+t.name)}</option>`).join("");
   $("#view").innerHTML = `
-  <div class="spread mb"><div><h1>Nhập đơn <span class="badge b-blue">SHEET ĐƠN ĐANG ĐI</span></h1>
+  <div class="spread mb"><div><h1>＋ Thêm đơn mới <span class="badge b-blue">nhập nhanh dạng Excel</span></h1>
     <p class="sub">Bố cục cột giữ như Excel, cuộn ngang để nhập tiếp · Đã tự gán: Platform = <b>TTS</b>, Shipped by = <b>TikTok Shipping</b>, Seller = <b>${esc(S.me.full_name)}</b> · ô <span class="badge b-green">xanh</span> auto-fill từ Template</p></div>
-    <div class="flex"><button class="btn" onclick="pasteImport()">📋 Dán từ Excel</button><button class="btn btn-p" onclick="saveNewRows()">💾 Lưu tất cả</button></div></div>
+    <div class="flex"><button class="btn" onclick="go('orders')">← Về danh sách đơn</button><button class="btn" onclick="pasteImport()">📋 Dán từ Excel</button><button class="btn btn-p" onclick="saveNewRows()">💾 Lưu tất cả</button></div></div>
   <div class="tw" style="max-height:calc(100vh - 200px)"><table class="sheet">
     <tr class="thgroup"><th></th><th colspan="4">📋 Thông tin đơn hàng</th><th>👤 Khách</th><th colspan="8">👕 Thông tin sản phẩm</th><th colspan="4">🎨 Thiết kế sản phẩm</th><th></th><th></th></tr>
     <tr><th>#</th>
@@ -1936,19 +1937,22 @@ function renderUsers(){
   :`<p class="muted">Không có đăng ký nào chờ duyệt.</p>`}</div>
   <div class="card"><h3>👥 Người dùng đã duyệt (${ok.length})</h3>
   <div class="tw"><table><tr><th>Họ tên</th><th>Email</th><th>Vai trò</th><th>Xem</th><th>Sửa</th><th>Xoá</th><th>Seller cũ</th><th>Trạng thái</th><th></th></tr>
-  ${ok.map(p=>`<tr><td><b>${esc(p.full_name)}</b>${p.id===S.me.id?' <span class="badge b-blue">bạn</span>':""}</td><td class="small">${esc(p.email||"")}</td>
+  ${ok.map(p=>`<tr><td><input id="u${p.id.slice(0,8)}_name" value="${esc(p.full_name||'')}" style="width:130px" title="Sửa tên hiển thị">${p.id===S.me.id?' <span class="badge b-blue">bạn</span>':""}</td><td class="small">${esc(p.email||"")}</td>
   <td>${roleSel("u"+p.id.slice(0,8), p.role)}</td>
   <td>${scopeSel("u"+p.id.slice(0,8),"v",p.view_scope)}</td><td>${scopeSel("u"+p.id.slice(0,8),"e",p.edit_scope)}</td><td>${scopeSel("u"+p.id.slice(0,8),"d",p.delete_scope)}</td>
   <td>${labelSel("u"+p.id.slice(0,8), p.seller_label)}</td>
   <td>${p.active?'<span class="badge b-green">Hoạt động</span>':'<span class="badge b-red">Đã khoá</span>'}</td>
-  <td class="nowrap"><button class="btn btn-sm" onclick="saveUser('${p.id}')">💾</button>
-  ${p.id!==S.me.id?`<button class="btn btn-sm ${p.active?"btn-danger":""}" onclick="lockUser('${p.id}',${p.active?"false":"true"})">${p.active?"🔒":"🔓"}</button>`:""}</td></tr>`).join("")}</table></div>
+  <td class="nowrap"><button class="btn btn-sm" onclick="saveUser('${p.id}')" title="Lưu (tên + quyền)">💾</button>
+  ${p.id!==S.me.id?`<button class="btn btn-sm ${p.active?"btn-danger":""}" onclick="lockUser('${p.id}',${p.active?"false":"true"})" title="${p.active?"Khoá tạm":"Mở khoá"}">${p.active?"🔒":"🔓"}</button>
+  <button class="btn btn-sm btn-danger" onclick="delUser('${p.id}')" title="Xoá hẳn">🗑️</button>`:""}</td></tr>`).join("")}</table></div>
   <p class="small muted mt">Nguyên tắc: <b>xem-toàn-bộ ≠ sửa-toàn-bộ</b>. Trưởng nhóm seller: Xem = Tất cả, Sửa = Của mình. FFM (Ngọc): Xem/Sửa = Tất cả.</p></div>`;
 }
 function readUserForm(id){
   const k = "u"+id.slice(0,8);
-  return { role:$(`#${k}_role`).value, view_scope:$(`#${k}_v`).value, edit_scope:$(`#${k}_e`).value,
+  const f = { role:$(`#${k}_role`).value, view_scope:$(`#${k}_v`).value, edit_scope:$(`#${k}_e`).value,
     delete_scope:$(`#${k}_d`).value, seller_label:$(`#${k}_label`).value||null };
+  const nm = $(`#${k}_name`); if(nm && nm.value.trim()) f.full_name = nm.value.trim();
+  return f;
 }
 async function approveUser(id){
   const f = readUserForm(id);
@@ -1974,6 +1978,21 @@ async function saveUser(id){
   }
   Object.assign(p, f);
   toast(`Đã lưu.${claimed?` Gán thêm ${claimed} đơn cũ.`:""}`);
+}
+async function delUser(id){
+  const p = S.profiles.find(x=>x.id===id); if(!p) return;
+  if(!confirm(`Xoá người dùng "${p.full_name}"?\n\n• Đơn của họ sẽ được GỠ GÁN (về "chưa gán") — KHÔNG mất đơn.\n• Muốn xoá hẳn tài khoản đăng nhập (email) thì vào Supabase → Authentication → Users.`)) return;
+  await db.from("orders").update({ seller_id:null }).eq("seller_id", id);   // gỡ gán để tránh vướng khoá ngoại
+  const { error } = await db.from("profiles").delete().eq("id", id);
+  if(error){
+    // Có lịch sử thao tác/nhật ký trỏ tới -> không xoá cứng được -> thu hồi toàn bộ quyền
+    const { error:e2 } = await db.from("profiles").update({ active:false, approved:false }).eq("id", id);
+    if(e2) return fail(e2);
+    toast('User có lịch sử thao tác nên không xoá cứng — đã KHOÁ & thu hồi quyền. Xoá hẳn tài khoản trong Supabase → Authentication → Users.');
+  } else {
+    toast('Đã xoá người dùng. (Xoá hẳn tài khoản đăng nhập trong Supabase → Authentication → Users để giải phóng email.)');
+  }
+  await reloadData();
 }
 async function lockUser(id, active){
   const { error } = await db.from("profiles").update({ active }).eq("id", id);
@@ -2057,7 +2076,7 @@ function renderSheet(){
   const g = (f,id)=>`g_${f}_${id}`;
   $("#view").innerHTML = `
   <div class="spread mb"><div><h1>Đơn đang đi <span class="badge b-blue">sửa trực tiếp</span></h1>
-    <p class="sub">Sửa thẳng trên dòng · ô <span class="badge b-blue">🔵 Seller</span> và <span class="badge b-green">🟢 FFM</span> khoá chéo tự động · sửa ô nào tự lưu ô đó · bấm 📋 copy Khách·SĐT·Địa chỉ để dán vào Cotik.</p></div>
+    <p class="sub">Sửa thẳng trên dòng · ô <span class="badge b-blue">🔵 Seller</span> và <span class="badge b-green">🟢 FFM</span> khoá chéo tự động · sửa ô nào tự lưu ô đó · bấm 📋 copy Khách·SĐT·Địa chỉ để dán Cotik · ô dài bấm nút <b>⤢</b> để mở rộng xem/sửa.</p></div>
     <div class="flex"><button class="btn btn-p" onclick="go('new')">＋ Nhập đơn mới</button></div></div>
   ${periodBar()}
   <div class="card mb"><input id="shQ" placeholder="🔍 Order ID / khách / tracking / color..." style="width:100%" value="${esc(SH.q)}"></div>
@@ -2072,18 +2091,18 @@ function renderSheet(){
       <td class="nowrap"><a href="#" onclick="openOrder('${o.id}');return false">${esc(o.platform_order_id)}</a></td>
       <td><input id="${g('customer_name',it.id)}" value="${esc(o.customer_name||"")}" onchange="gridSave('${it.id}')" ${dS}></td>
       <td><input id="${g('customer_contact',it.id)}" value="${esc(o.customer_contact||"")}" onchange="gridSave('${it.id}')" ${dS}></td>
-      <td class="nowrap"><input id="${g('customer_address',it.id)}" value="${esc(o.customer_address||"")}" onchange="gridSave('${it.id}')" ${dS} style="width:130px"> <span onclick="openCellEditor('${it.id}','customer_address','Địa chỉ')" title="Mở rộng xem/sửa" style="cursor:pointer">⤢</span></td>
-      <td class="nowrap"><input id="${g('label_link',it.id)}" value="${esc(o.label_link||"")}" onchange="gridSave('${it.id}')" ${dS} style="width:90px"> <span onclick="openCellEditor('${it.id}','label_link','Link Label')" title="Mở rộng xem/sửa" style="cursor:pointer">⤢</span></td>
+      <td class="nowrap"><input id="${g('customer_address',it.id)}" value="${esc(o.customer_address||"")}" onchange="gridSave('${it.id}')" ${dS} style="width:120px"><button type="button" class="xbtn" onclick="openCellEditor('${it.id}','customer_address','Địa chỉ')" title="Mở rộng xem/sửa">⤢</button></td>
+      <td class="nowrap"><input id="${g('label_link',it.id)}" value="${esc(o.label_link||"")}" onchange="gridSave('${it.id}')" ${dS} style="width:80px"><button type="button" class="xbtn" onclick="openCellEditor('${it.id}','label_link','Link Label')" title="Mở rộng xem/sửa">⤢</button></td>
       <td><input id="${g('order_date',it.id)}" type="date" value="${o.order_date||""}" onchange="gridSave('${it.id}')" ${dS}></td>
       <td><select id="${g('template_id',it.id)}" onchange="gridTmpl('${it.id}')" ${dS}>${tOpts(it.template_id)}</select></td>
       <td><input id="${g('size',it.id)}" value="${esc(it.size||"")}" onchange="gridSave('${it.id}')" ${dS} style="width:52px"></td>
       <td><input id="${g('color',it.id)}" value="${esc(it.color||"")}" onchange="gridSave('${it.id}')" ${dS} style="width:64px"></td>
       <td><input id="${g('quantity',it.id)}" type="number" min="1" value="${it.quantity||1}" onchange="gridSave('${it.id}')" ${dS} style="width:44px"></td>
-      <td class="nowrap"><input id="${g('design_link',it.id)}" value="${esc(it.design_link||"")}" onchange="gridSave('${it.id}')" ${dS} style="width:90px"> <span onclick="openCellEditor('${it.id}','design_link','Link Design')" title="Mở rộng xem/sửa" style="cursor:pointer">⤢</span></td>
+      <td class="nowrap"><input id="${g('design_link',it.id)}" value="${esc(it.design_link||"")}" onchange="gridSave('${it.id}')" ${dS} style="width:80px"><button type="button" class="xbtn" onclick="openCellEditor('${it.id}','design_link','Link Design')" title="Mở rộng xem/sửa">⤢</button></td>
       <td class="center"><select id="${g('confirm_design',it.id)}" onchange="gridSave('${it.id}')" ${dS} style="width:52px"><option value="0" ${!it.confirm_design?"selected":""}>—</option><option value="1" ${it.confirm_design?"selected":""}>✓</option></select></td>
       <td class="cell-auto small" id="gx_${it.id}">${esc(it.factory_id&&maps.factory[it.factory_id]?.name||"")}</td>
       <td><input id="${g('factory_order_id',it.id)}" value="${esc(it.factory_order_id||"")}" onchange="gridSave('${it.id}')" ${dF}></td>
-      <td><input id="${g('tracking_number',it.id)}" value="${esc(it.tracking_number||"")}" onchange="gridSave('${it.id}')" ${dF}></td>
+      <td class="nowrap"><input id="${g('tracking_number',it.id)}" value="${esc(it.tracking_number||"")}" onchange="gridSave('${it.id}')" ${dF} style="width:110px"><button type="button" class="xbtn" onclick="openCellEditor('${it.id}','tracking_number','Tracking')" title="Mở rộng xem/sửa">⤢</button></td>
       <td><input id="${g('carrier',it.id)}" value="${esc(it.carrier||"")}" onchange="gridSave('${it.id}')" ${dF} style="width:64px"></td>
       <td><input id="${g('pushed_at',it.id)}" type="date" value="${it.pushed_at||""}" onchange="gridSave('${it.id}')" ${dF}></td>
       <td><input id="${g('fulfillment_cost',it.id)}" type="number" step="0.01" value="${it.fulfillment_cost??""}" onchange="gridSave('${it.id}')" ${dF} style="width:72px"></td>
@@ -2113,8 +2132,9 @@ async function gridTmpl(itemId){
 function openCellEditor(itemId, field, label){
   const it=S.items.find(x=>x.id===itemId); if(!it) return; const o=maps.order[it.order_id]; if(!o) return;
   const orderLevel=["customer_name","customer_contact","customer_address","label_link"].includes(field);
+  const ffmField=["tracking_number","factory_order_id","carrier"].includes(field);
   const cur = orderLevel ? (o[field]||"") : (it[field]||"");
-  const canEdit = orderLevel ? (canEditOrder(o) && S.me.role!=="ffm") : (canEditOrder(o) && S.me.role!=="ffm");
+  const canEdit = ffmField ? isFFM() : (canEditOrder(o) && S.me.role!=="ffm");
   openModal(`<div class="spread mb"><h2>${esc(label)} — đơn ${esc(o.platform_order_id)}</h2><button class="btn btn-sm" onclick="closeModal()">✕</button></div>
   <textarea id="cellEd" rows="5" style="width:100%" ${canEdit?"":"disabled"}>${esc(cur)}</textarea>
   <div class="flex mt">${canEdit?`<button class="btn btn-p" onclick="saveCellEditor('${itemId}','${field}',${orderLevel})">💾 Lưu</button>`:`<span class="small muted">Chỉ xem</span>`}
