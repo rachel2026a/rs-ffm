@@ -417,18 +417,18 @@ function buildAlerts(){
     if(["delivered","synced","cancelled"].includes(it.item_status)) continue;
     const sla = slaInfo(it);
     if(sla && sla.diff < 0 && !["has_tracking"].includes(it.item_status))
-      A.push({ lv:3, icon:"🔴", msg:`Đơn ${o.platform_order_id} (${sellerName(o)}) TRỄ deadline ship ${-sla.diff} ngày — ${STATUS_VI[it.item_status]}`, view:"orders", q:o.platform_order_id });
+      A.push({ lv:3, icon:"🔴", msg:`Đơn ${o.platform_order_id} (${sellerName(o)}) TRỄ deadline ship ${-sla.diff} ngày — ${STATUS_VI[it.item_status]}`, view:"orders", q:o.platform_order_id, side:"both" });
     else if(sla && sla.diff <= 1 && !["ordered","in_production","has_tracking"].includes(it.item_status))
-      A.push({ lv:2, icon:"🟠", msg:`Đơn ${o.platform_order_id} (${sellerName(o)}) sắp tới deadline (${sla.txt}) mà chưa đẩy xưởng`, view:"orders", q:o.platform_order_id });
+      A.push({ lv:2, icon:"🟠", msg:`Đơn ${o.platform_order_id} (${sellerName(o)}) sắp tới deadline (${sla.txt}) mà chưa đẩy xưởng`, view:"orders", q:o.platform_order_id, side:"both" });
     const c = readyChecks(o,it);
     if(o.order_date && !["ordered","in_production","has_tracking"].includes(it.item_status)){
       const age = Math.floor((new Date() - new Date(o.order_date)) / 864e5);
       const miss = [!c.label&&"Label", !c.design&&"Confirm Design", !c.tracking&&"Tracking"].filter(Boolean);
       if(age >= 2 && miss.length)
-        A.push({ lv:2, icon:"🟡", msg:`Đơn ${o.platform_order_id} (${sellerName(o)}) đã ${age} ngày còn thiếu: ${miss.join(", ")}`, view:"orders", q:o.platform_order_id });
+        A.push({ lv:2, icon:"🟡", msg:`Đơn ${o.platform_order_id} (${sellerName(o)}) đã ${age} ngày còn thiếu: ${miss.join(", ")}`, view:"orders", q:o.platform_order_id, side:"seller" });
     }
     if(isReadyToPush(o,it))
-      A.push({ lv:1, icon:"🟢", msg:`Đơn ${o.platform_order_id} đủ điều kiện — chờ FFM đẩy xưởng (${it.factory_id ? (maps.factory[it.factory_id]?.name||"?") : "chưa rõ xưởng"})`, view:"push" });
+      A.push({ lv:1, icon:"🟢", msg:`Đơn ${o.platform_order_id} đủ điều kiện — chờ FFM đẩy xưởng (${it.factory_id ? (maps.factory[it.factory_id]?.name||"?") : "chưa rõ xưởng"})`, view:"push", side:"ffm" });
   }
   /* trùng khách giữa các đơn đang chạy */
   let dupShown = 0;
@@ -438,11 +438,11 @@ function buildAlerts(){
     const activeIds = new Set(S.rows.filter(r=>r.it && !["delivered","synced","cancelled"].includes(r.it.item_status)).map(r=>r.o.id));
     if(!os.some(o=>activeIds.has(o.id))) continue;
     dupShown++;
-    A.push({ lv:1, icon:"👥", msg:`Trùng khách "${os[0].customer_name||"?"}": ${os.length} đơn — kiểm tra gộp/tách đơn`, view:"orders", q:os[0].customer_name||"" });
+    A.push({ lv:1, icon:"👥", msg:`Trùng khách "${os[0].customer_name||"?"}": ${os.length} đơn — kiểm tra gộp/tách đơn`, view:"orders", q:os[0].customer_name||"", side:"seller" });
   }
   for(const b of S.balances){
     if(Number(b.balance_usd) < 0)
-      A.push({ lv:3, icon:"💸", msg:`Xưởng ${b.name} ÂM số dư ${fmtUSD(b.balance_usd)} — cần topup`, view:"finance" });
+      A.push({ lv:3, icon:"💸", msg:`Xưởng ${b.name} ÂM số dư ${fmtUSD(b.balance_usd)} — cần topup`, view:"finance", side:"ffm" });
   }
   return A.sort((a,b)=>b.lv-a.lv);
 }
@@ -452,7 +452,9 @@ const MENU = [
   { id:"dash",     icon:"🏠", label:"Tổng quan" },
   { id:"todo",     icon:"✅", label:"Việc hôm nay" },
   { id:"orders",   icon:"📦", label:"Đơn hàng" },
+  { id:"lookup",   icon:"🔎", label:"Tra cứu lô" },
   { id:"new",      icon:"➕", label:"Nhập đơn" },
+  { id:"sheet",    icon:"🧾", label:"Đơn đang đi" },
   { id:"import",   icon:"⬆️", label:"Import dữ liệu" },
   { id:"tasks",    icon:"📝", label:"Giao việc" },
   { id:"push",     icon:"🏭", label:"Đẩy xưởng", ffm:true },
@@ -481,13 +483,14 @@ function buildNav(){
       const c=readyChecks(r.o,r.it);
       return !["ordered","in_production","has_tracking","synced","delivered","cancelled","issue"].includes(r.it.item_status) && !(c.label&&c.design&&c.tracking); }).length;
       if(n) cnt = `<span class="cnt">${n>99?"99+":n}</span>`; }
+    if(m.id==="push" && isFFM()){ const n=(S.rows||[]).filter(r=>isReadyToPush(r.o,r.it)).length; if(n) cnt=`<span class="cnt">${n>99?"99+":n}</span>`; }
     return `<div class="item ${S.view===m.id?"active":""}" data-v="${m.id}">${m.icon} ${m.label}${cnt}</div>`;
   }).join("");
   $$("#nav .item").forEach(el=> el.onclick = ()=>{ go(el.dataset.v); $("#sidebar").classList.remove("open"); });
 }
 function go(v){
   S.view = v; buildNav();
-  const R = { dash:renderDash, todo:renderTodo, orders:renderOrders, new:renderNew, import:renderImport, tasks:renderTasks,
+  const R = { dash:renderDash, todo:renderTodo, orders:renderOrders, lookup:renderLookup, sheet:renderSheet, new:renderNew, import:renderImport, tasks:renderTasks,
     push:renderPush, finance:renderFinance, catalog:renderCatalog, alerts:renderAlerts,
     users:renderUsers, log:renderLog, profile:renderProfile };
   (R[v]||renderDash)();
@@ -574,7 +577,7 @@ function renderTodo(){
   let html = `<h1>Việc hôm nay</h1><p class="sub">Gom đúng việc cần làm theo vai trò của bạn</p>`;
 
   if(S.me.role==="seller" || isAdmin()){
-    html += `<div class="card mb"><h3>🔵 Đơn ${S.me.role==="seller"?"của bạn":""} còn thiếu điều kiện (${lack.length})</h3>
+    html += `<div class="card mb"><h3>🔵 ${S.me.role==="seller"?"VIỆC CỦA BẠN":"MỤC SELLER"} — đơn thiếu điều kiện (${lack.length})</h3>
     <div class="tw" style="max-height:340px"><table><tr><th>Order ID</th><th>Seller</th><th>Sản phẩm</th><th>Thiếu</th><th>SLA</th></tr>
     ${lack.slice(0,200).map(r=>{ const c=readyChecks(r.o,r.it); const sla=slaInfo(r.it);
       const miss=[!c.label&&"Label",!c.design&&"Design",!c.tracking&&"Tracking"].filter(Boolean).join(", ");
@@ -584,7 +587,7 @@ function renderTodo(){
     }).join("") || `<tr><td colspan="5" class="muted">Không có ✨</td></tr>`}</table></div></div>`;
   }
   if(isFFM()){
-    html += `<div class="card mb"><h3>🟢 Chờ FFM đẩy xưởng (${ready.length})</h3>
+    html += `<div class="card mb"><h3>🟢 MỤC FFM — chờ đẩy xưởng (${ready.length})</h3>
       ${ready.length?`<button class="btn btn-p btn-sm mb" onclick="go('push')">Mở màn hình Đẩy xưởng →</button>`:`<p class="muted">Không có đơn nào chờ.</p>`}
     </div>`;
     if(negBal.length) html += `<div class="card mb"><h3>💸 Xưởng cần topup</h3>
@@ -599,11 +602,17 @@ function renderTodo(){
 }
 
 /* ================= CẢNH BÁO ================= */
+let alertSide = "";
 function renderAlerts(){
-  const alerts = buildAlerts();
+  const all = buildAlerts();
+  const match = (a,side)=> !side || a.side===side || a.side==="both";
+  const alerts = all.filter(a=>match(a,alertSide));
+  const cnt = side=> all.filter(a=>match(a,side)).length;
+  const chip=(sd,l)=>`<button class="btn btn-sm ${alertSide===sd?"btn-p":""}" onclick="alertSide='${sd}';renderAlerts()">${l} <b>${cnt(sd)}</b></button>`;
   /* KHÔNG nhúng dữ liệu (tên khách/Order ID) vào chuỗi onclick: trong ngữ cảnh thuộc tính,
      browser giải mã &#39; lại thành ' -> thoát chuỗi -> XSS. Dùng data-i + listener. */
-  $("#view").innerHTML = `<h1>Cảnh báo</h1><p class="sub">Tự sinh từ dữ liệu · ưu tiên cao xuống thấp</p>
+  $("#view").innerHTML = `<h1>Cảnh báo</h1><p class="sub">Tự sinh từ dữ liệu · lọc theo bên phụ trách · ưu tiên cao xuống thấp</p>
+  <div class="flex mb" style="gap:6px;flex-wrap:wrap">${chip("","Tất cả")}${chip("seller","🔵 Seller")}${chip("ffm","🟢 FFM")}</div>
   ${alerts.map((a,i)=>`<div class="alertrow"><span>${a.icon}</span><span>${esc(a.msg)}
     ${a.q?` — <a href="#" class="alk" data-i="${i}">xem đơn</a>`:
       a.view&&a.view!=="orders"?` — <a href="#" class="alk" data-i="${i}">mở</a>`:""}</span></div>`).join("")
@@ -707,7 +716,7 @@ function renderOrders(){
 
   $("#view").innerHTML = `
   <div class="spread mb"><div><h1>Đơn hàng</h1>
-    <p class="sub">${rows.length} dòng sản phẩm · ${new Set(rows.map(r=>r.o.id)).size} đơn · bấm Order ID để xem & sửa chi tiết</p></div>
+    <p class="sub">${rows.length} dòng sản phẩm · ${new Set(rows.map(r=>r.o.id)).size} đơn · bấm Order ID hoặc ✏️ để mở & sửa/cập nhật đơn</p></div>
     <div class="flex"><button class="btn" onclick="exportOrdersCsv()">⇩ Xuất Excel</button></div></div>
   ${periodBar()}
   <div class="card mb"><div class="flex">
@@ -741,7 +750,7 @@ function renderOrders(){
       const { o, it } = r; const sla = slaInfo(it); const c = it?readyChecks(o,it):null;
       return `<tr>
       <td class="nowrap">${fmtD(o.order_date)}</td>
-      <td class="nowrap"><a href="#" onclick="openOrder('${o.id}');return false">${esc(o.platform_order_id)}</a> <span class="cpy" data-copy="${esc(o.platform_order_id)}" title="Copy Order ID" style="cursor:pointer">📋</span>${r.multi?' <span class="badge b-purple" title="Đơn nhiều sản phẩm">⧉</span>':""}${S.dupOrders&&S.dupOrders.has(o.id)?' <span class="badge b-yellow" title="Trùng tên/địa chỉ khách với đơn khác">👥</span>':""}</td>
+      <td class="nowrap"><a href="#" onclick="openOrder('${o.id}');return false">${esc(o.platform_order_id)}</a> <span class="cpy" data-copy="${esc(o.platform_order_id)}" title="Copy Order ID" style="cursor:pointer">📋</span> <a href="#" onclick="openOrder('${o.id}');return false" title="Mở & sửa/cập nhật đơn" style="text-decoration:none">✏️</a>${r.multi?' <span class="badge b-purple" title="Đơn nhiều sản phẩm">⧉</span>':""}${S.dupOrders&&S.dupOrders.has(o.id)?' <span class="badge b-yellow" title="Trùng tên/địa chỉ khách với đơn khác">👥</span>':""}</td>
       <td class="nowrap">${esc(o.selling_account_id && maps.sellAcc[o.selling_account_id]?.name || "")}</td>
       <td class="nowrap">${esc(sellerName(o))}</td>
       <td><span class="clip" title="${esc((o.customer_name||"")+" · "+(o.customer_address||""))}">${esc(o.customer_name||"")}</span></td>
@@ -842,6 +851,14 @@ function itemCard(o, it, i, ce, cf){
     <div class="spread"><h3>SP ${i+1} ${it.product_title?`<span class="muted small">· ${esc(it.product_title.slice(0,70))}</span>`:""}</h3>
       <div class="flex"><span class="badge ${STATUS_BADGE[it.item_status]}">${STATUS_VI[it.item_status]}</span>
       ${ce?`<button class="btn btn-sm btn-danger" onclick="delItem('${it.id}','${o.id}')">🗑</button>`:""}</div></div>
+    ${(()=>{ const ready=c.label&&c.design&&c.tracking;
+        const pushed=!!it.factory_order_id||["ordered","in_production","has_tracking","synced","delivered"].includes(it.item_status);
+        const miss=[!c.label&&"Label",!c.design&&"Confirm Design",!c.tracking&&"Tracking"].filter(Boolean);
+        let cls,txt;
+        if(pushed){ cls="b-green"; txt="🟢 FFM đã tiếp nhận / đẩy xưởng"; }
+        else if(ready){ cls="b-blue"; txt="✅ Seller xong 3 điều kiện → ⏳ CHỜ FFM đẩy xưởng"; }
+        else { cls="b-yellow"; txt="🔵 Đang chờ Seller — còn thiếu: "+miss.join(", "); }
+        return `<div class="mb"><span class="badge ${cls}" style="font-size:12px;padding:4px 10px">${txt}</span></div>`; })()}
     <div class="checklist small mb">Điều kiện đẩy xưởng:
       <span>${c.label?"✅":"⬜"} Label</span><span>${c.design?"✅":"⬜"} Confirm Design</span><span>${c.tracking?"✅":"⬜"} Tracking</span></div>
     <div class="fgrid">
@@ -1882,10 +1899,13 @@ async function taskDel(id){
 function renderUsers(){
   const pend = S.profiles.filter(p=>!p.approved);
   const ok = S.profiles.filter(p=>p.approved);
-  const labels = [...new Set(S.orders.map(o=>o.seller_name_import).filter(Boolean))].sort();
+  /* Đếm số đơn CHƯA gán theo tên seller cũ -> seller thật (nhiều đơn) lên đầu, rác (0 đơn) xuống cuối */
+  const labelCount = {};
+  for(const o of S.orders){ if(!o.seller_name_import) continue; if(!(o.seller_name_import in labelCount)) labelCount[o.seller_name_import]=0; if(!o.seller_id) labelCount[o.seller_name_import]++; }
+  const labels = Object.keys(labelCount).sort((a,b)=>labelCount[b]-labelCount[a] || a.localeCompare(b));
   const scopeSel = (id,k,v)=>`<select id="${id}_${k}">${["none","own","all"].map(s=>`<option value="${s}" ${v===s?"selected":""}>${SCOPE_VI[s]}</option>`).join("")}</select>`;
   const roleSel = (id,v)=>`<select id="${id}_role">${["seller","ffm","admin"].map(r=>`<option value="${r}" ${v===r?"selected":""}>${ROLE_VI[r]}</option>`).join("")}</select>`;
-  const labelSel = (id,v)=>`<select id="${id}_label"><option value="">— không gán —</option>${labels.map(l=>`<option ${v===l?"selected":""}>${esc(l)}</option>`).join("")}</select>`;
+  const labelSel = (id,v)=>`<select id="${id}_label"><option value="">— không gán —</option>${labels.map(l=>`<option value="${esc(l)}" ${v===l?"selected":""}>${esc(l)}${labelCount[l]?` · ${labelCount[l]} đơn`:" · (0)"}</option>`).join("")}</select>`;
 
   $("#view").innerHTML = `
   <h1>Phân quyền</h1><p class="sub">Duyệt người dùng · gán vai trò + 3 phạm vi (Xem/Sửa/Xoá độc lập) · gán tên seller cũ để nhận lại đơn seed.<br>
@@ -1977,6 +1997,132 @@ async function loadLog(){
 }
 
 /* ================= HỒ SƠ ================= */
+let LK = "";
+function renderLookup(){
+  $("#view").innerHTML = `<h1>Tra cứu lô</h1><p class="sub">Dán một loạt <b>Order ID</b> hoặc <b>Tracking</b> (mỗi dòng 1 mã) → ra ngay các đơn khớp, để đối soát cả lô.</p>
+  <div class="card mb"><textarea id="lkBox" rows="5" style="width:100%;font-family:monospace;font-size:12px" placeholder="Mỗi dòng 1 mã Order ID hoặc Tracking...">${esc(LK)}</textarea>
+    <div class="flex mt"><button class="btn btn-p" onclick="LK=$('#lkBox').value;renderLookup()">🔎 Tra cứu</button>
+    <button class="btn" onclick="LK='';renderLookup()">Xóa</button></div></div>
+  <div id="lkRes"></div>`;
+  const keys=LK.split(/\r?\n|[,;\t]+/).map(x=>x.trim().toLowerCase()).filter(Boolean);
+  if(!keys.length) return;
+  const kset=new Set(keys), hit=[], miss=new Set(keys);
+  for(const r of S.rows){
+    const oid=(r.o.platform_order_id||"").toLowerCase();
+    const cand=[oid,(r.o.tracking_number||"").toLowerCase(),(r.it?.tracking_number||"").toLowerCase(),(r.it?.factory_order_id||"").toLowerCase()];
+    let matched=false; for(const c of cand){ if(c && kset.has(c)){ miss.delete(c); matched=true; } }
+    if(matched) hit.push(r);
+  }
+  $("#lkRes").innerHTML = `<div class="flex mb" style="gap:8px">
+    <span class="badge b-green">${new Set(hit.map(r=>r.o.id)).size} đơn khớp</span>
+    <span class="badge b-blue">${hit.length} dòng SP</span>
+    ${miss.size?`<span class="badge b-red">${miss.size} mã KHÔNG thấy</span>`:""}</div>
+  ${miss.size?`<details class="mb"><summary class="small muted">Mã không tìm thấy (${miss.size})</summary><div class="small muted" style="word-break:break-all">${[...miss].map(esc).join(", ")}</div></details>`:""}
+  <div class="tw"><table><tr><th>Order ID</th><th>Seller</th><th>Khách</th><th>Sản phẩm</th><th>Tracking</th><th>Trạng thái</th></tr>
+  ${hit.map(r=>{const{o,it}=r;return `<tr><td class="nowrap"><a href="#" onclick="openOrder('${o.id}');return false">${esc(o.platform_order_id)}</a></td>
+    <td class="nowrap">${esc(sellerName(o))}</td><td><span class="clip">${esc(o.customer_name||"")}</span></td>
+    <td class="small"><span class="clip" style="max-width:200px">${esc(itemLabel(it))}</span></td>
+    <td class="small nowrap"><span class="clip" style="max-width:120px">${esc(it?.tracking_number||o.tracking_number||"")}</span></td>
+    <td>${it?`<span class="badge ${STATUS_BADGE[it.item_status]}">${STATUS_VI[it.item_status]}</span>`:""}</td></tr>`;}).join("")||`<tr><td colspan="6" class="muted">Không có mã nào khớp.</td></tr>`}
+  </table></div>`;
+}
+let SH = { q:"", page:1, per:60 };
+function renderSheet(){
+  const q = SH.q.trim().toLowerCase();
+  const items = S.rows.filter(r=> r.it
+    && !["delivered","synced","cancelled"].includes(r.it.item_status)
+    && inPeriod(r.o.order_date)
+    && (!q || [r.o.platform_order_id, r.o.customer_name, r.it.tracking_number, r.it.color, r.it.size, sellerName(r.o)].map(x=>String(x||"").toLowerCase()).join(" ").includes(q)) );
+  const pages = Math.max(1, Math.ceil(items.length/SH.per));
+  if(SH.page>pages) SH.page=1;
+  const page = items.slice((SH.page-1)*SH.per, SH.page*SH.per);
+  const tOpts = sel=>`<option value="">—</option>`+S.templates.filter(t=>t.active!==false).map(t=>`<option value="${t.id}" ${sel===t.id?"selected":""}>${esc((t.code?t.code+" · ":"")+t.name)}</option>`).join("");
+  const stOpts = sel=>Object.entries(STATUS_VI).map(([k,v])=>`<option value="${k}" ${sel===k?"selected":""}>${v}</option>`).join("");
+  const g = (f,id)=>`g_${f}_${id}`;
+  $("#view").innerHTML = `
+  <div class="spread mb"><div><h1>Đơn đang đi <span class="badge b-blue">sửa trực tiếp</span></h1>
+    <p class="sub">Sửa thẳng trên dòng · ô <span class="badge b-blue">🔵 Seller</span> và <span class="badge b-green">🟢 FFM</span> khoá chéo tự động · sửa ô nào tự lưu ô đó · bấm 📋 copy Khách·SĐT·Địa chỉ để dán vào Cotik.</p></div>
+    <div class="flex"><button class="btn btn-p" onclick="go('new')">＋ Nhập đơn mới</button></div></div>
+  ${periodBar()}
+  <div class="card mb"><input id="shQ" placeholder="🔍 Order ID / khách / tracking / color..." style="width:100%" value="${esc(SH.q)}"></div>
+  <div class="tw" style="max-height:calc(100vh - 250px)"><table class="sheet" style="font-size:12px">
+    <tr class="thgroup"><th></th><th></th><th colspan="5">📋 Đơn & Khách — 🔵 Seller</th><th colspan="6">👕 Sản phẩm — 🔵 Seller</th><th>⚙</th><th colspan="6">🚚 Vận chuyển & xưởng — 🟢 FFM</th></tr>
+    <tr><th></th><th>Order ID</th><th style="min-width:110px">Khách</th><th style="min-width:90px">SĐT</th><th style="min-width:150px">Địa chỉ</th><th style="min-width:110px">Label</th><th>Ngày</th>
+      <th style="min-width:150px">Template</th><th>Size</th><th>Color</th><th>SL</th><th style="min-width:110px">Design</th><th>✓</th>
+      <th>Xưởng</th><th style="min-width:100px">Order FFM</th><th style="min-width:120px">Tracking</th><th>Carrier</th><th>Ngày đẩy</th><th>Chi phí</th><th style="min-width:110px">Trạng thái</th></tr>
+    ${page.map(r=>{ const {o,it}=r; const dS=(canEditOrder(o) && S.me.role!=="ffm")?"":"disabled", dF=isFFM()?"":"disabled";
+      return `<tr>
+      <td class="center"><span class="cpy2" onclick="copyCotik('${it.id}')" title="Copy Khách·SĐT·Địa chỉ cho Cotik" style="cursor:pointer">📋</span></td>
+      <td class="nowrap"><a href="#" onclick="openOrder('${o.id}');return false">${esc(o.platform_order_id)}</a></td>
+      <td><input id="${g('customer_name',it.id)}" value="${esc(o.customer_name||"")}" onchange="gridSave('${it.id}')" ${dS}></td>
+      <td><input id="${g('customer_contact',it.id)}" value="${esc(o.customer_contact||"")}" onchange="gridSave('${it.id}')" ${dS}></td>
+      <td><input id="${g('customer_address',it.id)}" value="${esc(o.customer_address||"")}" onchange="gridSave('${it.id}')" ${dS}></td>
+      <td><input id="${g('label_link',it.id)}" value="${esc(o.label_link||"")}" onchange="gridSave('${it.id}')" ${dS}></td>
+      <td><input id="${g('order_date',it.id)}" type="date" value="${o.order_date||""}" onchange="gridSave('${it.id}')" ${dS}></td>
+      <td><select id="${g('template_id',it.id)}" onchange="gridTmpl('${it.id}')" ${dS}>${tOpts(it.template_id)}</select></td>
+      <td><input id="${g('size',it.id)}" value="${esc(it.size||"")}" onchange="gridSave('${it.id}')" ${dS} style="width:52px"></td>
+      <td><input id="${g('color',it.id)}" value="${esc(it.color||"")}" onchange="gridSave('${it.id}')" ${dS} style="width:64px"></td>
+      <td><input id="${g('quantity',it.id)}" type="number" min="1" value="${it.quantity||1}" onchange="gridSave('${it.id}')" ${dS} style="width:44px"></td>
+      <td><input id="${g('design_link',it.id)}" value="${esc(it.design_link||"")}" onchange="gridSave('${it.id}')" ${dS}></td>
+      <td class="center"><select id="${g('confirm_design',it.id)}" onchange="gridSave('${it.id}')" ${dS} style="width:52px"><option value="0" ${!it.confirm_design?"selected":""}>—</option><option value="1" ${it.confirm_design?"selected":""}>✓</option></select></td>
+      <td class="cell-auto small" id="gx_${it.id}">${esc(it.factory_id&&maps.factory[it.factory_id]?.name||"")}</td>
+      <td><input id="${g('factory_order_id',it.id)}" value="${esc(it.factory_order_id||"")}" onchange="gridSave('${it.id}')" ${dF}></td>
+      <td><input id="${g('tracking_number',it.id)}" value="${esc(it.tracking_number||"")}" onchange="gridSave('${it.id}')" ${dF}></td>
+      <td><input id="${g('carrier',it.id)}" value="${esc(it.carrier||"")}" onchange="gridSave('${it.id}')" ${dF} style="width:64px"></td>
+      <td><input id="${g('pushed_at',it.id)}" type="date" value="${it.pushed_at||""}" onchange="gridSave('${it.id}')" ${dF}></td>
+      <td><input id="${g('fulfillment_cost',it.id)}" type="number" step="0.01" value="${it.fulfillment_cost??""}" onchange="gridSave('${it.id}')" ${dF} style="width:72px"></td>
+      <td><select id="${g('item_status',it.id)}" onchange="gridSave('${it.id}')" ${dF}>${stOpts(it.item_status)}</select></td>
+      </tr>`; }).join("") || `<tr><td colspan="20" class="muted">Không có đơn đang xử lý khớp kỳ/tìm kiếm.</td></tr>`}
+  </table></div>
+  <div class="flex mt"><button class="btn btn-sm" ${SH.page<=1?"disabled":""} onclick="SH.page--;renderSheet()">← Trước</button>
+  <span class="muted small">Trang ${SH.page}/${pages} · ${items.length} sản phẩm đang xử lý</span>
+  <button class="btn btn-sm" ${SH.page>=pages?"disabled":""} onclick="SH.page++;renderSheet()">Sau →</button></div>`;
+  const qb=$("#shQ"); if(qb) qb.oninput = debounce(e=>{ SH.q=e.target.value; SH.page=1; renderSheet(); const el=$("#shQ"); if(el){ el.focus(); el.setSelectionRange(el.value.length,el.value.length); } },350);
+}
+function copyCotik(itemId){
+  const it=S.items.find(x=>x.id===itemId); const o=it&&maps.order[it.order_id]; if(!o) return;
+  copyText([o.customer_name,o.customer_contact,o.customer_address].filter(Boolean).join("\t"));
+}
+async function gridTmpl(itemId){
+  const it=S.items.find(x=>x.id===itemId); if(!it) return;
+  const el=$(`#g_template_id_${itemId}`); const tid=el?el.value:""; const t=maps.template[tid];
+  const patch={ template_id: tid||null };
+  if(t){ patch.product_type=t.product_type||null; patch.factory_id=t.factory_id||null; patch.dimension=t.dimension||null; }
+  const { data, error } = await db.from("order_items").update(patch).eq("id",itemId).select().single();
+  if(error) return fail(error);
+  Object.assign(it, data||patch);
+  const gx=$(`#gx_${itemId}`); if(gx) gx.textContent = it.factory_id&&maps.factory[it.factory_id]?.name||"";
+  buildRows(); toast("Đã áp Template.");
+}
+async function gridSave(itemId){
+  const it=S.items.find(x=>x.id===itemId); if(!it) return;
+  const o=maps.order[it.order_id]; if(!o) return;
+  const val=f=>{ const el=$(`#g_${f}_${itemId}`); return el?el.value:undefined; };
+  const tr=v=>v==null?null:(String(v).trim()||null);
+  const sOk=canEditOrder(o) && S.me.role!=="ffm", fOk=isFFM();
+  try{
+    if(sOk){
+      const op={};
+      const od=val("order_date"); if(od!==undefined) op.order_date=od||null;
+      ["customer_name","customer_contact","customer_address","label_link"].forEach(f=>{ const v=val(f); if(v!==undefined) op[f]=tr(v); });
+      if(Object.keys(op).length){ op.updated_by=S.me.id; const {error}=await db.from("orders").update(op).eq("id",o.id); if(error) throw error; Object.assign(o,op); }
+    }
+    const ip={};
+    if(sOk){
+      ["size","color","design_link"].forEach(f=>{ const v=val(f); if(v!==undefined) ip[f]=tr(v); });
+      const qty=val("quantity"); if(qty!==undefined) ip.quantity=Number(qty)||1;
+      const cf=val("confirm_design"); if(cf!==undefined) ip.confirm_design=cf==="1";
+    }
+    if(fOk){
+      ["factory_order_id","tracking_number","carrier"].forEach(f=>{ const v=val(f); if(v!==undefined) ip[f]=tr(v); });
+      const pa=val("pushed_at"); if(pa!==undefined) ip.pushed_at=pa||null;
+      const cost=val("fulfillment_cost"); if(cost!==undefined) ip.fulfillment_cost=cost===""?null:Number(cost);
+      const st=val("item_status"); if(st!==undefined) ip.item_status=st;
+    }
+    if(Object.keys(ip).length){ const {data,error}=await db.from("order_items").update(ip).eq("id",itemId).select().single(); if(error) throw error; Object.assign(it,data||ip); }
+    buildRows(); buildNav(); toast("Đã lưu.");
+  }catch(e){ fail(e); }
+}
 function renderProfile(){
   const p = S.me;
   $("#view").innerHTML = `<h1>Hồ sơ</h1><p class="sub">Tài khoản của bạn</p>
