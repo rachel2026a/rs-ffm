@@ -206,7 +206,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.23</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.25</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -1368,19 +1368,26 @@ async function saveNewRows(){
         order = data; S.orders.push(order); maps.order[order.id]=order; nOrders++;
       }
       const existing = S.items.filter(i=>i.order_id===order.id).length;
-      const payload = rs.map((r,j)=>({
-        order_id: order.id, template_id: r.tmpl||null,
-        product_type: r.ptype||null, factory_id: r.fact||null, dimension: r.dim||null,
-        sku_phoi: r.sku||null, size: r.size||null, color: r.color||null, quantity: r.qty||1,
-        listing_link: r.listing||null, order_design_code: r.odesign||null,
-        design_link: r.design||null, confirm_design: r.conf==="1", needs_fix: r.conf==="2", factory_design: r.conf==="3", note: r.note||null,
-        tracking_number: r.tracking||null,
-        source_line: existing + j + 1,
-        item_status: r.tracking ? "has_tracking" : ((r.conf==="1"||r.conf==="3") ? "design_ok" : (r.design ? "waiting_design" : "new")),
-      }));
-      const { data: its, error: e2 } = await db.from("order_items").insert(payload).select();
-      if(e2) throw e2;
-      S.items.push(...its); nItems += its.length;
+      /* Tái dùng item RỖNG (vd đơn Nạp Excel TTS chỉ có SL, chưa có sản phẩm) -> KHÔNG tạo dòng trùng */
+      const emptyPool = S.items.filter(i=>i.order_id===order.id && !i.template_id && !i.size && !i.color && !i.sku_phoi && !i.product_title && !i.design_link && !i.factory_order_id);
+      const toInsert=[];
+      for(let j=0;j<rs.length;j++){
+        const r=rs[j];
+        const base = { template_id:r.tmpl||null, product_type:r.ptype||null, factory_id:r.fact||null, dimension:r.dim||null,
+          sku_phoi:r.sku||null, size:r.size||null, color:r.color||null, quantity:r.qty||1,
+          listing_link:r.listing||null, order_design_code:r.odesign||null,
+          design_link:r.design||null, confirm_design:r.conf==="1", needs_fix:r.conf==="2", factory_design:r.conf==="3", note:r.note||null,
+          tracking_number:r.tracking||null };
+        const reuse = emptyPool.shift();
+        if(reuse){   /* điền vào item rỗng sẵn có (không đổi item_status để tránh trigger chặn seller) */
+          const { data, error } = await db.from("order_items").update(base).eq("id",reuse.id).select().single();
+          if(error) throw error; Object.assign(reuse, data||base); nItems++;
+        } else {
+          toInsert.push({ order_id:order.id, ...base, source_line: existing + toInsert.length + 1,
+            item_status: r.tracking ? "has_tracking" : ((r.conf==="1"||r.conf==="3") ? "design_ok" : (r.design ? "waiting_design" : "new")) });
+        }
+      }
+      if(toInsert.length){ const { data: its, error: e2 } = await db.from("order_items").insert(toInsert).select(); if(e2) throw e2; S.items.push(...its); nItems += its.length; }
     }
   }catch(e){ return fail(e); }
   buildRows(); NR = [blankRow(), blankRow()];
@@ -2478,7 +2485,22 @@ function updateSelBar(){
   if(!bar){ bar=document.createElement("div"); bar.id="selbar"; bar.style.cssText="position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:9998;background:#0f172a;color:#fff;padding:8px 12px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.3);display:flex;gap:8px;align-items:center;flex-wrap:wrap"; document.body.appendChild(bar); }
   const stO=Object.entries(STATUS_VI).map(([k,v])=>`<option value="${k}">${v}</option>`).join("");
   const fO=S.factories.map(f=>`<option value="${f.id}">${esc(f.name)}</option>`).join("");
-  bar.innerHTML=`<b>Đã chọn ${n} SP</b>${(isFFM()||isAdmin())?`<select id="bulkStatus" style="color:#111;padding:3px"><option value="">— Đổi trạng thái —</option>${stO}</select>`:""}<select id="bulkFactory" style="color:#111;padding:3px"><option value="">— Đổi xưởng —</option>${fO}</select><button class="btn btn-p btn-sm" onclick="applyBulk()">Áp dụng</button><button class="btn btn-sm" onclick="clearSel()" style="background:#334155;color:#fff">Bỏ chọn</button>`;
+  bar.innerHTML=`<b>Đã chọn ${n} SP</b>${(isFFM()||isAdmin())?`<select id="bulkStatus" style="color:#111;padding:3px"><option value="">— Đổi trạng thái —</option>${stO}</select>`:""}<select id="bulkFactory" style="color:#111;padding:3px"><option value="">— Đổi xưởng —</option>${fO}</select><button class="btn btn-p btn-sm" onclick="applyBulk()">Áp dụng</button>${(isAdmin()||S.me.delete_scope==="all")?`<button class="btn btn-sm btn-danger" onclick="bulkDelete()">🗑 Xoá</button>`:""}<button class="btn btn-sm" onclick="clearSel()" style="background:#334155;color:#fff">Bỏ chọn</button>`;
+}
+async function bulkDelete(){
+  const ids=[...(S.sel||[])]; if(!ids.length) return;
+  if(!(isAdmin()||S.me.delete_scope==="all")){ toast("Bạn không có quyền xoá.",true); return; }
+  const orderIds=[...new Set(ids.map(id=>{const it=S.items.find(x=>x.id===id);return it&&it.order_id;}).filter(Boolean))];
+  if(!confirm(`Xoá ${ids.length} sản phẩm đã chọn?\nĐơn nào hết sản phẩm sẽ bị xoá luôn. KHÔNG hoàn tác.`)) return;
+  try{
+    const { error } = await db.from("order_items").delete().in("id",ids); if(error) throw error;
+    S.items = S.items.filter(x=>!ids.includes(x.id));
+    const emptyOrders = orderIds.filter(oid=>!S.items.some(x=>x.order_id===oid));
+    let nord=0;
+    if(emptyOrders.length){ const { error:e2 } = await db.from("orders").delete().in("id",emptyOrders);
+      if(!e2){ S.orders=S.orders.filter(o=>!emptyOrders.includes(o.id)); emptyOrders.forEach(oid=>delete maps.order[oid]); nord=emptyOrders.length; } }
+    buildRows(); buildNav(); clearSel(); toast(`Đã xoá ${ids.length} SP${nord?` + ${nord} đơn rỗng`:""}.`); renderOrders();
+  }catch(e){ fail(e); }
 }
 async function applyBulk(){
   const st=$("#bulkStatus")?$("#bulkStatus").value:""; const fa=$("#bulkFactory")?$("#bulkFactory").value:"";
