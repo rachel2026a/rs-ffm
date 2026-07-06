@@ -102,7 +102,8 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 .okflash{animation:okf .9s ease-out}
 .rsel{width:16px;height:16px;cursor:pointer}
 .otbl td{vertical-align:middle}
-.otbl th,.otbl td{padding-top:9px;padding-bottom:9px}
+.otbl{font-size:12px}
+.otbl th,.otbl td{padding:6px 7px}
 .otbl .thgroup th{padding:7px 10px;font-weight:700;font-size:11.5px;border-bottom:1px solid #d9e1ea}
 .otbl tbody tr:hover td{filter:brightness(.97)}
 .sheet{font-size:12px}
@@ -202,7 +203,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.8</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.10</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -868,8 +869,8 @@ function renderOrders(){
       <td class="oc-oid nowrap"><a href="#" onclick="openOrder('${o.id}');return false">${esc(o.platform_order_id)}</a> <span class="cpy" data-copy="${esc(o.platform_order_id)}" title="Copy Order ID" style="cursor:pointer">📋</span> <a href="#" onclick="openOrder('${o.id}');return false" title="Mở & sửa/cập nhật đơn" style="text-decoration:none">✏️</a>${r.multi?' <span class="badge b-purple" title="Đơn nhiều sản phẩm">⧉</span>':""}${S.dupOrders&&S.dupOrders.has(o.id)?' <span class="badge b-yellow" title="Trùng tên/địa chỉ khách với đơn khác">👥</span>':""}</td>
       <td class="oc-acc nowrap">${esc(o.selling_account_id && maps.sellAcc[o.selling_account_id]?.name || "")}</td>
       <td class="oc-seller nowrap">${esc(sellerName(o))}</td>
-      <td class="oc-cust">${em&&it?`<input id="g_customer_name_${it.id}" value="${esc(o.customer_name||'')}" onchange="gridSave('${it.id}')" ${dS} style="width:120px">`:`<span class="clip" style="max-width:150px;font-weight:500" title="${esc((o.customer_name||"")+" · "+(o.customer_address||""))}">${esc(o.customer_name||"")}</span>${it?` <span onclick="event.stopPropagation();copyCotik('${it.id}')" title="Copy Khách·SĐT·Địa chỉ cho Cotik" style="cursor:pointer">📋</span>`:""}${o.customer_address?`<div class="clip small muted" style="max-width:170px" title="${esc(o.customer_address)}">${esc(o.customer_address)}</div>`:""}`}</td>
-      <td class="oc-prod">${em&&it?`<select id="g_template_id_${it.id}" onchange="gridTmpl('${it.id}')" ${dS} style="max-width:200px"><option value="">—</option>${S.templates.filter(t=>t.active!==false).map(t=>`<option value="${t.id}" ${it.template_id===t.id?"selected":""}>${esc((t.code?t.code+" · ":"")+t.name)}</option>`).join("")}</select>`:`<span class="clip" style="max-width:220px" title="${esc(it?.product_title||"")}">${esc(itemLabel(it))}</span>`}</td>
+      <td class="oc-cust">${em&&it?`<input id="g_customer_name_${it.id}" value="${esc(o.customer_name||'')}" onchange="gridSave('${it.id}')" ${dS} style="width:120px">`:`<span class="clip" style="max-width:130px;font-weight:500" title="${esc((o.customer_name||"")+" · "+(o.customer_address||""))}">${esc(o.customer_name||"")}</span>${it?` <span onclick="event.stopPropagation();copyCotik('${it.id}')" title="Copy Khách·SĐT·Địa chỉ cho Cotik" style="cursor:pointer">📋</span>`:""}${o.customer_address?`<div class="clip small muted" style="max-width:140px" title="${esc(o.customer_address)}">${esc(o.customer_address)}</div>`:""}`}</td>
+      <td class="oc-prod">${em&&it?`<select id="g_template_id_${it.id}" onchange="gridTmpl('${it.id}')" ${dS} style="max-width:150px"><option value="">—</option>${S.templates.filter(t=>t.active!==false).map(t=>`<option value="${t.id}" ${it.template_id===t.id?"selected":""}>${esc((t.code?t.code+" · ":"")+t.name)}</option>`).join("")}</select>`:`<span class="clip" style="max-width:150px" title="${esc(it?.product_title||"")}">${esc(itemLabel(it))}</span>`}</td>
       <td class="oc-sku nowrap small">${em&&it?`<input id="g_sku_phoi_${it.id}" value="${esc(it.sku_phoi||'')}" onchange="gridSave('${it.id}')" ${dS} style="width:90px">`:(it?.sku_phoi?`<span class="clip" style="max-width:90px" title="${esc(it.sku_phoi)}">${esc(it.sku_phoi)}</span> <span class="cpy" data-copy="${esc(it.sku_phoi)}" title="Copy SKU" style="cursor:pointer">📋</span>`:"")}</td>
       <td class="oc-link nowrap">${em&&it?`<input id="g_listing_link_${it.id}" value="${esc(it.listing_link||'')}" onchange="gridSave('${it.id}')" ${dS} placeholder="link" style="width:100px">`:(it?.listing_link?`<a href="${esc(it.listing_link)}" target="_blank" title="${esc(it.listing_link)}">🔗</a> <span class="cpy" data-copy="${esc(it.listing_link)}" title="Copy link SP" style="cursor:pointer">📋</span>`:"")}</td>
       <td class="oc-size nowrap">${em&&it?`<input id="g_size_${it.id}" value="${esc(it.size||'')}" onchange="gridSave('${it.id}')" ${dS} style="width:52px">`:esc(it?.size||"")}</td><td class="oc-color nowrap">${em&&it?`<input id="g_color_${it.id}" value="${esc(it.color||'')}" onchange="gridSave('${it.id}')" ${dS} style="width:64px">`:esc(it?.color||"")}</td><td class="oc-sl center">${em&&it?`<input type="number" min="1" id="g_quantity_${it.id}" value="${it.quantity||1}" onchange="gridSave('${it.id}')" ${dS} style="width:46px">`:(it?.quantity??"")}</td>
@@ -877,7 +878,7 @@ function renderOrders(){
       <td class="oc-conf center">${em&&it?`<select id="g_confirm_design_${it.id}" onchange="gridSave('${it.id}')" ${dS} style="width:104px"><option value="0" ${(!it.confirm_design&&!it.needs_fix&&!it.factory_design)?"selected":""}>—</option><option value="1" ${it.confirm_design?"selected":""}>✓ Done</option><option value="2" ${it.needs_fix?"selected":""}>Need Fix</option><option value="3" ${it.factory_design?"selected":""}>Xưởng des</option></select>`:(it? (it.factory_design?'<span class="badge b-purple" title="Xưởng tự design → chuyển FFM">Xưởng</span>':(it.needs_fix?'<span class="badge b-red">Fix</span>':(it.confirm_design?'<span class="b-green badge">✓</span>':'<span class="muted">—</span>'))):"")}</td>
       <td class="oc-factory nowrap">${esc(it?.factory_id && maps.factory[it.factory_id]?.name || "")}</td>
       <td class="oc-offm nowrap small">${em&&it?`<input id="g_factory_order_id_${it.id}" value="${esc(it.factory_order_id||'')}" onchange="gridSave('${it.id}')" ${dF} style="width:100px">`:esc(it?.factory_order_id||"")}</td>
-      <td class="oc-track nowrap">${em&&it?`<input id="g_tracking_number_${it.id}" value="${esc(it.tracking_number||'')}" onchange="gridSave('${it.id}')" ${dT} style="width:120px">`:(()=>{const tk=it?.tracking_number||o.tracking_number||"";return tk?`<span class="clip" style="max-width:110px" title="${esc(tk)}">${esc(tk)}</span> <span class="cpy" data-copy="${esc(tk)}" title="Copy tracking" style="cursor:pointer">📋</span>`:"";})()}</td>
+      <td class="oc-track nowrap">${em&&it?`<input id="g_tracking_number_${it.id}" value="${esc(it.tracking_number||'')}" onchange="gridSave('${it.id}')" ${dT} style="width:120px">`:(()=>{const tk=it?.tracking_number||o.tracking_number||"";return tk?`<span class="clip" style="max-width:88px" title="${esc(tk)}">${esc(tk)}</span> <span class="cpy" data-copy="${esc(tk)}" title="Copy tracking" style="cursor:pointer">📋</span>`:"";})()}</td>
       <td class="oc-status">${em&&it?`<select id="g_item_status_${it.id}" onchange="gridSave('${it.id}')" ${dF}>${stO(it.item_status)}</select>`:(it?`<span class="badge ${STATUS_BADGE[it.item_status]}">${STATUS_VI[it.item_status]}</span>`:"")}
         ${c&&!(c.label&&c.design&&c.tracking)?`<div class="small muted nowrap" title="Điều kiện đẩy xưởng">${c.label?"✅":"⬜"}L ${c.design?"✅":"⬜"}D ${c.tracking?"✅":"⬜"}T</div>`:""}</td>
       <td class="oc-sla nowrap ${sla?sla.cls:""}">${sla?sla.txt:""}</td>
@@ -1209,7 +1210,7 @@ function newSheetHTML(){
       <td><input data-i="${i}" data-k="note" value="${esc(r.note)}" placeholder="ghi chú"></td>
       <td><input data-i="${i}" data-k="label" value="${esc(r.label)}" placeholder="https://cdn.cotik.app/…"></td>
       <td class="nowrap"><input data-i="${i}" data-k="tracking" value="${esc(r.tracking||'')}" placeholder="mã vận đơn"></td>
-      <td><input data-i="${i}" data-k="cust" value="${esc(r.cust)}" placeholder="Tên - (+1)SĐT - Địa chỉ"><div class="small muted" id="custpv_${i}" style="max-width:180px;line-height:1.3">${custPreview(r.cust)}</div></td>
+      <td><div class="cellcopy"><input data-i="${i}" data-k="cust" value="${esc(r.cust)}" placeholder="Tên - (+1)SĐT - Địa chỉ"><span class="cpi" onclick="copyCell(${i},'cust')" title="Copy khách">📋</span></div><div class="small muted" id="custpv_${i}" style="max-width:180px;line-height:1.3">${custPreview(r.cust)}</div></td>
       <td><div class="cellcopy"><input data-i="${i}" data-k="tmplname" list="dl_tmpl" value="${esc(r.tmplname!=null?r.tmplname:(r.tmpl&&maps.template[r.tmpl]?tDisp(maps.template[r.tmpl]):''))}" placeholder="gõ mã/tên…" autocomplete="off"><span class="cpi" onclick="copyCell(${i},'tmplname')" title="Copy Template">📋</span></div><div class="small muted" id="autoh_${i}" style="line-height:1.2">${r.tmpl?[r.ptype,(r.fact&&maps.factory[r.fact]?maps.factory[r.fact].name:''),r.dim].filter(Boolean).join(' · '):''}</div></td>
       <td><input data-i="${i}" data-k="sku" value="${esc(r.sku)}"></td>
       <td><input data-i="${i}" data-k="size" value="${esc(r.size)}"></td>
