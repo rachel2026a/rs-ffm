@@ -204,7 +204,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.14</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.15</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -2261,24 +2261,49 @@ async function renderLog(){
   loadLog();
   $("#lgEntity").onchange = loadLog;
 }
+const FLAB = { selling_account_id:"TK bán", seller_id:"Seller", factory_id:"Xưởng", template_id:"Template", item_status:"Trạng thái", confirm_design:"Confirm design", needs_fix:"Need Fix", factory_design:"Xưởng design", tracking_number:"Tracking", tracking_status:"TT tracking", factory_order_id:"Order FFM", fulfillment_cost:"Chi phí", cost_currency:"Tiền tệ", label_link:"Link Label", label_fee:"Phí Label", design_link:"Link design", customer_name:"Tên khách", customer_contact:"SĐT", customer_address:"Địa chỉ", size:"Size", color:"Color", quantity:"SL", sku_phoi:"SKU", listing_link:"Link SP", order_design_code:"Order Design", seller_note:"Note", order_date:"Ngày order", pushed_at:"Ngày đẩy", carrier:"Carrier", deadline_ship:"Deadline", name:"Tên", full_name:"Họ tên", role:"Vai trò", approved:"Duyệt", active:"Active", amount:"Số tiền", platform_order_id:"Order ID", product_type:"Product Type", dimension:"Dimension" };
+function fLabel(k){ return FLAB[k]||k; }
+function fVal(k,v){
+  if(v==null||v==="") return "(trống)";
+  if(k==="selling_account_id") return (maps.sellAcc[v]&&maps.sellAcc[v].name)||v;
+  if(["seller_id","created_by","updated_by","actor","assignee_id","grantee"].includes(k)) return (maps.profile[v]&&maps.profile[v].full_name)||"(user)";
+  if(k==="factory_id"||k==="factory_account_id") return (maps.factory[v]&&maps.factory[v].name)||v;
+  if(k==="template_id"){ const t=maps.template[v]; return t?((t.code?t.code+" · ":"")+t.name):v; }
+  if(k==="item_status") return STATUS_VI[v]||v;
+  if(typeof v==="boolean") return v?"✓":"—";
+  if(typeof v==="object") return JSON.stringify(v).slice(0,40);
+  return String(v);
+}
+function logRefOf(l){
+  if(l.entity==="orders"){ const o=maps.order[l.entity_id]; return o?("Đơn "+o.platform_order_id):(l.changes&&l.changes.platform_order_id?("Đơn "+l.changes.platform_order_id):""); }
+  if(l.entity==="order_items"){ const it=S.items.find(x=>x.id===l.entity_id); const o=it&&maps.order[it.order_id]; return o?("Đơn "+o.platform_order_id):""; }
+  if(l.entity==="profiles"){ return (maps.profile[l.entity_id]&&maps.profile[l.entity_id].full_name)||(l.changes&&l.changes.full_name)||""; }
+  return (l.changes&&(l.changes.name||l.changes.platform_order_id))||"";
+}
 async function loadLog(){
   let q = db.from("activity_log").select("*").order("at",{ascending:false}).limit(300);
   const ent = $("#lgEntity") ? $("#lgEntity").value : "";
   if(ent) q = q.eq("entity", ent);
   const { data, error } = await q;
-  const _lg = $("#lgBody"); if(!_lg) return;   /* đã rời màn Nhật ký -> bỏ qua, tránh lỗi null */
+  const _lg = $("#lgBody"); if(!_lg) return;
   if(error){ _lg.innerHTML = `<p class="muted">Không đọc được nhật ký (cần quyền xem-toàn-bộ).</p>`; return; }
   const AV = { INSERT:'<span class="badge b-green">Thêm</span>', UPDATE:'<span class="badge b-yellow">Sửa</span>', DELETE:'<span class="badge b-red">Xoá</span>' };
+  const SKIP = ["updated_at","updated_by","created_at","source_raw","id"];
   _lg.innerHTML = `<div class="tw" style="max-height:65vh"><table>
-  <tr><th>Thời gian</th><th>Người làm</th><th>Hành động</th><th>Bảng</th><th>Chi tiết</th></tr>
+  <tr><th>Thời gian</th><th>Người làm</th><th>Hành động</th><th>Bảng</th><th>Đơn / Đối tượng</th><th>Thay đổi (cũ → mới)</th></tr>
   ${(data||[]).map(l=>{
     let detail = "";
-    if(l.action==="UPDATE" && l.changes) detail = Object.keys(l.changes).filter(k=>!["updated_at","updated_by"].includes(k)).slice(0,6).join(", ");
-    else if(l.changes) detail = (l.changes.platform_order_id || l.changes.name || l.changes.full_name || "");
+    if(l.action==="UPDATE" && l.changes){
+      detail = Object.entries(l.changes).filter(([k])=>!SKIP.includes(k)).slice(0,8)
+        .map(([k,ov])=>`<b>${esc(fLabel(k))}</b>: <span class="muted">${esc(fVal(k, ov&&ov.old))}</span> → <b>${esc(fVal(k, ov&&ov.new))}</b>`).join("<br>");
+    } else if(l.changes){
+      detail = ["platform_order_id","name","full_name","item_status","amount","tracking_number"].filter(k=>l.changes[k]!=null)
+        .map(k=>`${esc(fLabel(k))}: ${esc(fVal(k,l.changes[k]))}`).join("<br>") || "(cả dòng)";
+    }
     return `<tr><td class="nowrap small">${new Date(l.at).toLocaleString("vi-VN")}</td>
-    <td>${esc(maps.profile[l.actor]?.full_name||"hệ thống")}</td><td>${AV[l.action]||l.action}</td>
-    <td class="small">${l.entity}</td><td class="small muted">${esc(String(detail).slice(0,90))}</td></tr>`;
-  }).join("") || `<tr><td colspan="5" class="muted">Chưa có hoạt động nào.</td></tr>`}</table></div>`;
+    <td class="small nowrap">${esc(maps.profile[l.actor]?.full_name||"hệ thống")}</td><td>${AV[l.action]||l.action}</td>
+    <td class="small">${l.entity}</td><td class="small nowrap">${esc(logRefOf(l))}</td><td class="small">${detail||""}</td></tr>`;
+  }).join("") || `<tr><td colspan="6" class="muted">Chưa có hoạt động nào.</td></tr>`}</table></div>`;
 }
 
 /* ================= HỒ SƠ ================= */
