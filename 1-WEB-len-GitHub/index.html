@@ -202,7 +202,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.7</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.8</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -444,7 +444,7 @@ function sellerName(o){
 }
 /* Checklist 3 điều kiện đẩy xưởng (docx mục 5): Label + Confirm Design + Tracking */
 function readyChecks(o, it){
-  return { label: !!o.label_link, design: !!(it && it.confirm_design), tracking: !!(o.tracking_number || (it && it.tracking_number)) };
+  return { label: !!o.label_link, design: !!(it && (it.confirm_design || it.factory_design)), tracking: !!(o.tracking_number || (it && it.tracking_number)) };
 }
 function isReadyToPush(o, it){
   if(!it) return false;
@@ -874,7 +874,7 @@ function renderOrders(){
       <td class="oc-link nowrap">${em&&it?`<input id="g_listing_link_${it.id}" value="${esc(it.listing_link||'')}" onchange="gridSave('${it.id}')" ${dS} placeholder="link" style="width:100px">`:(it?.listing_link?`<a href="${esc(it.listing_link)}" target="_blank" title="${esc(it.listing_link)}">🔗</a> <span class="cpy" data-copy="${esc(it.listing_link)}" title="Copy link SP" style="cursor:pointer">📋</span>`:"")}</td>
       <td class="oc-size nowrap">${em&&it?`<input id="g_size_${it.id}" value="${esc(it.size||'')}" onchange="gridSave('${it.id}')" ${dS} style="width:52px">`:esc(it?.size||"")}</td><td class="oc-color nowrap">${em&&it?`<input id="g_color_${it.id}" value="${esc(it.color||'')}" onchange="gridSave('${it.id}')" ${dS} style="width:64px">`:esc(it?.color||"")}</td><td class="oc-sl center">${em&&it?`<input type="number" min="1" id="g_quantity_${it.id}" value="${it.quantity||1}" onchange="gridSave('${it.id}')" ${dS} style="width:46px">`:(it?.quantity??"")}</td>
       <td class="oc-design center">${em&&it?`<input id="g_design_link_${it.id}" value="${esc(it.design_link||'')}" onchange="gridSave('${it.id}')" ${dS} placeholder="link" style="width:90px">`:(it?.design_link?`<a href="${esc(it.design_link)}" target="_blank">🔗</a>`:"")}</td>
-      <td class="oc-conf center">${em&&it?`<select id="g_confirm_design_${it.id}" onchange="gridSave('${it.id}')" ${dS} style="width:88px"><option value="0" ${(!it.confirm_design&&!it.needs_fix)?"selected":""}>—</option><option value="1" ${it.confirm_design?"selected":""}>✓ Done</option><option value="2" ${it.needs_fix?"selected":""}>Need Fix</option></select>`:(it? (it.needs_fix?'<span class="badge b-red">Fix</span>':(it.confirm_design?'<span class="b-green badge">✓</span>':'<span class="muted">—</span>')):"")}</td>
+      <td class="oc-conf center">${em&&it?`<select id="g_confirm_design_${it.id}" onchange="gridSave('${it.id}')" ${dS} style="width:104px"><option value="0" ${(!it.confirm_design&&!it.needs_fix&&!it.factory_design)?"selected":""}>—</option><option value="1" ${it.confirm_design?"selected":""}>✓ Done</option><option value="2" ${it.needs_fix?"selected":""}>Need Fix</option><option value="3" ${it.factory_design?"selected":""}>Xưởng des</option></select>`:(it? (it.factory_design?'<span class="badge b-purple" title="Xưởng tự design → chuyển FFM">Xưởng</span>':(it.needs_fix?'<span class="badge b-red">Fix</span>':(it.confirm_design?'<span class="b-green badge">✓</span>':'<span class="muted">—</span>'))):"")}</td>
       <td class="oc-factory nowrap">${esc(it?.factory_id && maps.factory[it.factory_id]?.name || "")}</td>
       <td class="oc-offm nowrap small">${em&&it?`<input id="g_factory_order_id_${it.id}" value="${esc(it.factory_order_id||'')}" onchange="gridSave('${it.id}')" ${dF} style="width:100px">`:esc(it?.factory_order_id||"")}</td>
       <td class="oc-track nowrap">${em&&it?`<input id="g_tracking_number_${it.id}" value="${esc(it.tracking_number||'')}" onchange="gridSave('${it.id}')" ${dT} style="width:120px">`:(()=>{const tk=it?.tracking_number||o.tracking_number||"";return tk?`<span class="clip" style="max-width:110px" title="${esc(tk)}">${esc(tk)}</span> <span class="cpy" data-copy="${esc(tk)}" title="Copy tracking" style="cursor:pointer">📋</span>`:"";})()}</td>
@@ -992,7 +992,7 @@ function itemCard(o, it, i, ce, cf){
       <div><label>🔵 Color</label><input id="it_color_${it.id}" value="${esc(it.color||"")}" ${disS}></div>
       <div><label>🔵 SL</label><input id="it_qty_${it.id}" type="number" min="1" value="${it.quantity||1}" ${disS}></div>
       <div style="grid-column:span 2"><label>🔵 Link design</label><input id="it_design_${it.id}" value="${esc(it.design_link||"")}" ${disS}></div>
-      <div><label>🔵 Confirm design</label><select id="it_conf_${it.id}" ${disS}><option value="0" ${!it.confirm_design?"selected":""}>Chưa</option><option value="1" ${it.confirm_design?"selected":""}>✓ Done</option></select></div>
+      <div><label>🔵 Confirm design</label><select id="it_conf_${it.id}" ${disS}><option value="0" ${(!it.confirm_design&&!it.needs_fix&&!it.factory_design)?"selected":""}>Chưa</option><option value="1" ${it.confirm_design?"selected":""}>✓ Done</option><option value="2" ${it.needs_fix?"selected":""}>Need Fix</option><option value="3" ${it.factory_design?"selected":""}>🏭 Xưởng design</option></select></div>
       <div><label>🔵 Deadline ship (US)</label><input id="it_dl_${it.id}" type="date" value="${it.deadline_ship||""}" ${disS}></div>
     </div>
     ${ce?`<button class="btn btn-sm mt" onclick="saveItemSeller('${it.id}')">💾 Lưu phần Seller</button>`:""}
@@ -1050,6 +1050,8 @@ async function saveItemSeller(id){
     quantity: Number($(`#it_qty_${id}`).value)||1,
     design_link: $(`#it_design_${id}`).value.trim() || null,
     confirm_design: $(`#it_conf_${id}`).value==="1",
+    needs_fix: $(`#it_conf_${id}`).value==="2",
+    factory_design: $(`#it_conf_${id}`).value==="3",
     deadline_ship: $(`#it_dl_${id}`).value || null,
   };
   const { error } = await db.from("order_items").update(patch).eq("id", id);
@@ -1216,7 +1218,7 @@ function newSheetHTML(){
       <td><input data-i="${i}" data-k="listing" value="${esc(r.listing)}"></td>
       <td><input data-i="${i}" data-k="odesign" value="${esc(r.odesign)}"></td>
       <td><input data-i="${i}" data-k="design" value="${esc(r.design)}" placeholder="link drive…"></td>
-      <td><select data-i="${i}" data-k="conf"><option value="0" ${(!r.conf||r.conf==="0")?"selected":""}>—</option><option value="1" ${r.conf==="1"?"selected":""}>Done</option><option value="2" ${r.conf==="2"?"selected":""}>Need Fix</option></select></td>
+      <td><select data-i="${i}" data-k="conf"><option value="0" ${(!r.conf||r.conf==="0")?"selected":""}>—</option><option value="1" ${r.conf==="1"?"selected":""}>Done</option><option value="2" ${r.conf==="2"?"selected":""}>Need Fix</option><option value="3" ${r.conf==="3"?"selected":""}>Xưởng des</option></select></td>
       <td class="center"><button class="btn btn-sm btn-danger" tabindex="-1" onclick="NR.splice(${i},1);rerenderNewHost()">✕</button></td>
     </tr>`).join("")}
   </table></div>`;
@@ -1328,10 +1330,10 @@ async function saveNewRows(){
         product_type: r.ptype||null, factory_id: r.fact||null, dimension: r.dim||null,
         sku_phoi: r.sku||null, size: r.size||null, color: r.color||null, quantity: r.qty||1,
         listing_link: r.listing||null, order_design_code: r.odesign||null,
-        design_link: r.design||null, confirm_design: r.conf==="1", needs_fix: r.conf==="2", note: r.note||null,
+        design_link: r.design||null, confirm_design: r.conf==="1", needs_fix: r.conf==="2", factory_design: r.conf==="3", note: r.note||null,
         tracking_number: r.tracking||null,
         source_line: existing + j + 1,
-        item_status: r.tracking ? "has_tracking" : (r.conf==="1" ? "design_ok" : (r.design ? "waiting_design" : "new")),
+        item_status: r.tracking ? "has_tracking" : ((r.conf==="1"||r.conf==="3") ? "design_ok" : (r.design ? "waiting_design" : "new")),
       }));
       const { data: its, error: e2 } = await db.from("order_items").insert(payload).select();
       if(e2) throw e2;
@@ -2367,7 +2369,7 @@ async function gridSave(itemId){
     if(sOk){
       ["size","color","design_link","sku_phoi","listing_link","order_design_code"].forEach(f=>{ const v=val(f); if(v!==undefined) ip[f]=tr(v); });
       const qty=val("quantity"); if(qty!==undefined) ip.quantity=Number(qty)||1;
-      const cf=val("confirm_design"); if(cf!==undefined){ ip.confirm_design=cf==="1"; ip.needs_fix=cf==="2"; }
+      const cf=val("confirm_design"); if(cf!==undefined){ ip.confirm_design=cf==="1"; ip.needs_fix=cf==="2"; ip.factory_design=cf==="3"; }
     }
     if(fOk){
       ["factory_order_id","carrier"].forEach(f=>{ const v=val(f); if(v!==undefined) ip[f]=tr(v); });
