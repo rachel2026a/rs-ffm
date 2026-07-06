@@ -203,7 +203,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.10</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.12</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -1106,6 +1106,7 @@ function ensureBlank(){ while(NR.length<2 || rowHasData(NR[NR.length-1]) || rowH
 function copyRowDown(i){ if(i<=0)return; const p=NR[i-1],r=NR[i]; if(!p)return; r.date=p.date;r.acc=p.acc;r.accname=p.accname;r.tmpl=p.tmpl;r.tmplname=p.tmplname;r.ptype=p.ptype;r.fact=p.fact;r.dim=p.dim; rerenderNewHost(); }
 function _tDispG(t){ return (t.code?t.code+" · ":"")+t.name; }
 function setFieldValue(i,k,v){
+  if(v && /\r?\n/.test(v)){ v = (k==="cust") ? v.split(/\r?\n/).map(x=>x.trim()).filter(Boolean).join(" - ") : v.split(/\r?\n/).map(x=>x.trim()).filter(Boolean).join(" "); }
   if(k==="date"){ NR[i].date = ttsDate(v)||v; return; }
   if(k==="accname"){ NR[i].accname=v; const a=S.sellAccs.find(x=>x.name===v); NR[i].acc=a?a.id:""; return; }
   if(k==="tmplname"){ NR[i].tmplname=v; const t=S.templates.find(x=>_tDispG(x)===v); if(t){NR[i].tmpl=t.id;NR[i].ptype=t.product_type||"";NR[i].fact=t.factory_id||"";NR[i].dim=t.dimension||"";} else NR[i].tmpl=""; return; }
@@ -1124,16 +1125,31 @@ function fillDown(i,k){
   rerenderNewHost();
   setTimeout(()=>{ const el=document.querySelector(`#view .sheet [data-i="${i}"][data-k="${k}"]`); if(el){ el.focus(); try{el.select&&el.select()}catch(_){} } },0);
 }
+function parseClipColumn(txt){
+  const out=[]; let cur="", inQ=false;
+  for(let i=0;i<txt.length;i++){ const c=txt[i];
+    if(inQ){ if(c==='"'){ if(txt[i+1]==='"'){ cur+='"'; i++; } else inQ=false; } else cur+=c; }
+    else { if(c==='"') inQ=true; else if(c==='\r'){} else if(c==='\n'){ out.push(cur); cur=""; } else cur+=c; }
+  }
+  out.push(cur);
+  if(out.length>1 && out[out.length-1]==="") out.pop();
+  return out;
+}
 function pasteColumn(ev, el){
   const txt=(ev.clipboardData||window.clipboardData).getData("text"); if(!txt) return;
   const k0=el.dataset.k, i00=+el.dataset.i;
-  if(!/\r?\n/.test(txt)){ if(k0==="date"||k0==="accname"||k0==="tmplname"){ ev.preventDefault(); setFieldValue(i00,k0,txt.trim()); rerenderNewHost(); setTimeout(()=>{const e3=document.querySelector(`#view .sheet [data-i="${i00}"][data-k="${k0}"]`); if(e3)e3.focus();},0); } return; }
-  ev.preventDefault();
-  const vals=txt.replace(/\r/g,"").split("\n"); if(vals.length && vals[vals.length-1]==="") vals.pop();
-  const i0=+el.dataset.i, k=el.dataset.k;
-  vals.forEach((v,off)=>{ const i=i0+off; while(NR.length<=i) NR.push(blankRow()); setFieldValue(i,k,v.trim()); });
+  const vals=parseClipColumn(txt);
+  if(vals.length<=1){   // 1 ô (kể cả ô nhiều dòng) -> giữ nguyên trong 1 hàng
+    ev.preventDefault();
+    setFieldValue(i00,k0,(vals[0]!=null?vals[0]:txt).trim());
+    rerenderNewHost();
+    setTimeout(()=>{const e3=document.querySelector(`#view .sheet [data-i="${i00}"][data-k="${k0}"]`); if(e3)e3.focus();},0);
+    return;
+  }
+  ev.preventDefault();   // nhiều hàng -> rải xuống các dòng
+  vals.forEach((v,off)=>{ const i=i00+off; while(NR.length<=i) NR.push(blankRow()); setFieldValue(i,k0,(v||"").trim()); });
   ensureBlank(); rerenderNewHost();
-  setTimeout(()=>{ const e2=document.querySelector(`#view .sheet [data-i="${i0}"][data-k="${k}"]`); if(e2) e2.focus(); },0);
+  setTimeout(()=>{ const e2=document.querySelector(`#view .sheet [data-i="${i00}"][data-k="${k0}"]`); if(e2) e2.focus(); },0);
   toast(`Đã dán ${vals.length} dòng vào cột.`);
 }
 function copyCell(i,k){
@@ -1987,7 +2003,11 @@ function catForm(id){
   if(t==="selling_accounts") F = `<label>Tên * (vd TTS33)</label><input id="cf_name" value="${esc(cur.name||"")}">
     <label>Sàn</label><select id="cf_plat"><option ${cur.platform==="TTS"?"selected":""}>TTS</option><option ${cur.platform==="AMZ"?"selected":""}>AMZ</option></select>
     <label>Note</label><input id="cf_note" value="${esc(cur.note||"")}">
-    <label>Active</label><select id="cf_act"><option value="1" ${cur.active!==false?"selected":""}>✓ Dùng</option><option value="0" ${cur.active===false?"selected":""}>Ẩn</option></select>`;
+    <label>Active</label><select id="cf_act"><option value="1" ${cur.active!==false?"selected":""}>✓ Dùng</option><option value="0" ${cur.active===false?"selected":""}>Ẩn</option></select>${id?`
+    <hr style="margin:12px 0;border:none;border-top:1px solid #e2e8f0">
+    <label>🔀 Gộp TK này VÀO TK khác <span class="small muted">(chuyển hết đơn sang, rồi xoá TK này)</span></label>
+    <select id="cf_mergeto"><option value="">— chọn TK đích —</option>${S.sellAccs.filter(a=>a.id!==id).slice().sort((a,b)=>a.name.localeCompare(b.name)).map(a=>`<option value="${a.id}">${esc(a.name)} · ${a.platform}</option>`).join("")}</select>
+    <button class="btn btn-p btn-sm mt" onclick="mergeSellAcc('${id}')">🔀 Gộp ngay</button>`:""}`;
   if(t==="factory_accounts") F = `<label>Xưởng *</label><select id="cf_fact">${factOpts(cur.factory_id)}</select>
     <label>Email đăng nhập *</label><input id="cf_email" value="${esc(cur.email||"")}">
     <label>Note</label><input id="cf_note" value="${esc(cur.note||"")}">
@@ -2017,7 +2037,7 @@ async function catSave(id){
   } else if(!row.name) return toast("Nhập tên.", true);
   const q = id ? db.from(t).update(row).eq("id",id).select().single() : db.from(t).insert(row).select().single();
   const { data:saved, error } = await q;
-  if(error) return fail(error);
+  if(error){ if(error.code==="23505" && t==="selling_accounts") return toast("Tên này đã tồn tại. Nếu là TK trùng, dùng nút '🔀 Gộp ngay' thay vì đổi tên.",true); return fail(error); }
   if(t==="factory_accounts"){
     const pw = $("#cf_pw").value;
     if(pw){
@@ -2035,6 +2055,20 @@ async function catSave(id){
     if(t==="selling_accounts"){S.sellAccs=fresh; maps.sellAcc=Object.fromEntries(fresh.map(f=>[f.id,f]));}
     if(t==="factory_accounts"){S.factAccs=fresh;} }
   renderCatalog();
+}
+async function mergeSellAcc(fromId){
+  const toId = $("#cf_mergeto") ? $("#cf_mergeto").value : "";
+  if(!toId){ toast("Chọn TK đích để gộp vào.",true); return; }
+  const from = S.sellAccs.find(a=>a.id===fromId), to = S.sellAccs.find(a=>a.id===toId);
+  const n = S.orders.filter(o=>o.selling_account_id===fromId).length;
+  if(!confirm(`Gộp "${from?from.name:''}" → "${to?to.name:''}"?\n\n• ${n} đơn sẽ chuyển sang "${to?to.name:''}".\n• TK "${from?from.name:''}" bị xoá.\nKhông hoàn tác.`)) return;
+  try{
+    const { error:e1 } = await db.from("orders").update({ selling_account_id: toId }).eq("selling_account_id", fromId); if(e1) throw e1;
+    const { error:e2 } = await db.from("selling_accounts").delete().eq("id", fromId); if(e2) throw e2;
+    S.orders.forEach(o=>{ if(o.selling_account_id===fromId) o.selling_account_id=toId; });
+    S.sellAccs = S.sellAccs.filter(a=>a.id!==fromId); delete maps.sellAcc[fromId];
+    buildRows(); closeModal(); toast(`Đã gộp: chuyển ${n} đơn sang "${to?to.name:''}", xoá TK cũ.`); renderCatalog();
+  }catch(e){ fail(e); }
 }
 async function catDel(id){
   if(!confirm("Xoá mục này? (Nếu đang được đơn hàng dùng sẽ không xoá được)")) return;
