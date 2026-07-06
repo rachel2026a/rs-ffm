@@ -108,7 +108,8 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 .otbl tbody tr:hover td{filter:brightness(.97)}
 .sheet{font-size:12px}
 .sheet td,.sheet th{padding:4px 6px}
-.sheet td input:not([type=checkbox]),.sheet td select{width:100%;min-width:0;box-sizing:border-box}
+.sheet td input:not([type=checkbox]),.sheet td select,.sheet td textarea{width:100%;min-width:0;box-sizing:border-box}
+.sheet td textarea{min-height:26px;resize:vertical;font:inherit;line-height:1.3;padding:2px 4px;border:1.5px solid #94a3b8;border-radius:5px;vertical-align:top;white-space:pre-wrap}
 .sheet .cellcopy{display:flex;align-items:center;gap:2px}
 .sheet .cellcopy input{flex:1;width:auto}
 .sheet .cpi{cursor:pointer;font-size:12px;flex:0 0 auto;opacity:.65}
@@ -203,7 +204,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.12</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.14</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -1106,7 +1107,7 @@ function ensureBlank(){ while(NR.length<2 || rowHasData(NR[NR.length-1]) || rowH
 function copyRowDown(i){ if(i<=0)return; const p=NR[i-1],r=NR[i]; if(!p)return; r.date=p.date;r.acc=p.acc;r.accname=p.accname;r.tmpl=p.tmpl;r.tmplname=p.tmplname;r.ptype=p.ptype;r.fact=p.fact;r.dim=p.dim; rerenderNewHost(); }
 function _tDispG(t){ return (t.code?t.code+" · ":"")+t.name; }
 function setFieldValue(i,k,v){
-  if(v && /\r?\n/.test(v)){ v = (k==="cust") ? v.split(/\r?\n/).map(x=>x.trim()).filter(Boolean).join(" - ") : v.split(/\r?\n/).map(x=>x.trim()).filter(Boolean).join(" "); }
+  if(k==="cust" && v && /\r?\n/.test(v)){ v = v.split(/\r?\n/).map(x=>x.trim()).filter(Boolean).join(" - "); }
   if(k==="date"){ NR[i].date = ttsDate(v)||v; return; }
   if(k==="accname"){ NR[i].accname=v; const a=S.sellAccs.find(x=>x.name===v); NR[i].acc=a?a.id:""; return; }
   if(k==="tmplname"){ NR[i].tmplname=v; const t=S.templates.find(x=>_tDispG(x)===v); if(t){NR[i].tmpl=t.id;NR[i].ptype=t.product_type||"";NR[i].fact=t.factory_id||"";NR[i].dim=t.dimension||"";} else NR[i].tmpl=""; return; }
@@ -1136,21 +1137,31 @@ function parseClipColumn(txt){
   return out;
 }
 function pasteColumn(ev, el){
-  const txt=(ev.clipboardData||window.clipboardData).getData("text"); if(!txt) return;
+  const cd = ev.clipboardData || window.clipboardData; if(!cd) return;
+  const txt = cd.getData("text") || "";
+  const html = cd.getData("text/html") || "";
+  if(!txt) return;
   const k0=el.dataset.k, i00=+el.dataset.i;
-  const vals=parseClipColumn(txt);
-  if(vals.length<=1){   // 1 ô (kể cả ô nhiều dòng) -> giữ nguyên trong 1 hàng
+  // Chỉ RẢI XUỐNG NHIỀU DÒNG khi nguồn đúng là bảng tính (Excel/Google Sheets) và có >1 hàng.
+  // Copy từ web (TikTok/Cotik) hay 1 ô nhiều dòng -> luôn gộp vào 1 hàng.
+  const isSheet = /google-sheets|data-sheets|urn:schemas-microsoft-com:office|excel\.sheet|mso-/i.test(html);
+  let rows = null;
+  if(isSheet && /<table/i.test(html)){
+    const tr = html.match(/<tr[\s>]/gi);
+    if(tr && tr.length>1) rows = parseClipColumn(txt);
+  }
+  if(!rows || rows.length<=1){   // 1 giá trị -> dán gọn trong 1 ô (setFieldValue tự nối xuống-dòng)
     ev.preventDefault();
-    setFieldValue(i00,k0,(vals[0]!=null?vals[0]:txt).trim());
+    setFieldValue(i00,k0,txt.trim());
     rerenderNewHost();
     setTimeout(()=>{const e3=document.querySelector(`#view .sheet [data-i="${i00}"][data-k="${k0}"]`); if(e3)e3.focus();},0);
     return;
   }
-  ev.preventDefault();   // nhiều hàng -> rải xuống các dòng
-  vals.forEach((v,off)=>{ const i=i00+off; while(NR.length<=i) NR.push(blankRow()); setFieldValue(i,k0,(v||"").trim()); });
+  ev.preventDefault();   // nhiều hàng từ bảng tính -> rải xuống
+  rows.forEach((v,off)=>{ const i=i00+off; while(NR.length<=i) NR.push(blankRow()); setFieldValue(i,k0,(v||"").trim()); });
   ensureBlank(); rerenderNewHost();
   setTimeout(()=>{ const e2=document.querySelector(`#view .sheet [data-i="${i00}"][data-k="${k0}"]`); if(e2) e2.focus(); },0);
-  toast(`Đã dán ${vals.length} dòng vào cột.`);
+  toast(`Đã dán ${rows.length} dòng vào cột.`);
 }
 function copyCell(i,k){
   let v="";
@@ -1223,7 +1234,7 @@ function newSheetHTML(){
       <td><div class="cellcopy"><input data-i="${i}" data-k="date" type="date" value="${r.date}"><span class="cpi" onclick="copyCell(${i},'date')" title="Copy ngày">📋</span></div></td>
       <td class="nowrap"><input data-i="${i}" data-k="order_id" value="${esc(r.order_id)}" placeholder="57738…"><span id="dupflag_${i}">${dupBadge(r.order_id)}</span></td>
       <td><div class="cellcopy"><input data-i="${i}" data-k="accname" list="dl_acc" value="${esc(r.accname!=null?r.accname:(r.acc&&maps.sellAcc[r.acc]?maps.sellAcc[r.acc].name:''))}" placeholder="gõ shop…" autocomplete="off"><span class="cpi" onclick="copyCell(${i},'accname')" title="Copy TK bán">📋</span></div></td>
-      <td><input data-i="${i}" data-k="note" value="${esc(r.note)}" placeholder="ghi chú"></td>
+      <td><textarea data-i="${i}" data-k="note" rows="1" placeholder="ghi chú">${esc(r.note)}</textarea></td>
       <td><input data-i="${i}" data-k="label" value="${esc(r.label)}" placeholder="https://cdn.cotik.app/…"></td>
       <td class="nowrap"><input data-i="${i}" data-k="tracking" value="${esc(r.tracking||'')}" placeholder="mã vận đơn"></td>
       <td><div class="cellcopy"><input data-i="${i}" data-k="cust" value="${esc(r.cust)}" placeholder="Tên - (+1)SĐT - Địa chỉ"><span class="cpi" onclick="copyCell(${i},'cust')" title="Copy khách">📋</span></div><div class="small muted" id="custpv_${i}" style="max-width:180px;line-height:1.3">${custPreview(r.cust)}</div></td>
@@ -1233,7 +1244,7 @@ function newSheetHTML(){
       <td><input data-i="${i}" data-k="color" value="${esc(r.color)}"></td>
       <td><input data-i="${i}" data-k="qty" type="number" min="1" value="${r.qty}"></td>
       <td><input data-i="${i}" data-k="listing" value="${esc(r.listing)}"></td>
-      <td><input data-i="${i}" data-k="odesign" value="${esc(r.odesign)}"></td>
+      <td><textarea data-i="${i}" data-k="odesign" rows="1">${esc(r.odesign)}</textarea></td>
       <td><input data-i="${i}" data-k="design" value="${esc(r.design)}" placeholder="link drive…"></td>
       <td><select data-i="${i}" data-k="conf"><option value="0" ${(!r.conf||r.conf==="0")?"selected":""}>—</option><option value="1" ${r.conf==="1"?"selected":""}>Done</option><option value="2" ${r.conf==="2"?"selected":""}>Need Fix</option><option value="3" ${r.conf==="3"?"selected":""}>Xưởng des</option></select></td>
       <td class="center"><button class="btn btn-sm btn-danger" tabindex="-1" onclick="NR.splice(${i},1);rerenderNewHost()">✕</button></td>
@@ -1241,7 +1252,7 @@ function newSheetHTML(){
   </table></div>`;
 }
 function wireNewSheet(){
-  $$("#view .sheet select, #view .sheet input").forEach(el=>{
+  $$("#view .sheet select, #view .sheet input, #view .sheet textarea").forEach(el=>{
     const tDisp = t => (t.code?t.code+" · ":"")+t.name;
     const setVal = (i,k,v)=>{
       if(k==="factname") return;
