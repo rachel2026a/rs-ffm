@@ -67,6 +67,7 @@ th{position:sticky;top:0;background:var(--panel2);color:var(--muted);font-size:1
 td{padding:7px 8px;border-bottom:1px solid var(--border);vertical-align:top}
 tr:hover td{background:var(--panel2)}
 .tw{overflow:auto;border:1px solid var(--border);border-radius:10px;background:var(--panel);max-height:calc(100vh - 260px)}
+.tw>table,.tw table{width:auto}
 .thgroup th{background:var(--panel);color:var(--text);font-size:11px;border-bottom:1px solid var(--border);text-align:center;position:static}
 .cell-auto{background:var(--auto)!important}
 .nowrap{white-space:nowrap} .muted{color:var(--muted)} .small{font-size:11.5px}
@@ -103,7 +104,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 .okflash{animation:okf .9s ease-out}
 .rsel{width:16px;height:16px;cursor:pointer}
 .otbl td{vertical-align:middle}
-.otbl{font-size:12px}
+.otbl{font-size:12px;width:auto}
 .otbl th,.otbl td{padding:6px 7px}
 .otbl .thgroup th{padding:7px 10px;font-weight:700;font-size:11.5px;border-bottom:1px solid #d9e1ea}
 .otbl tbody tr:hover td{filter:brightness(.97)}
@@ -205,7 +206,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.18</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.22</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -796,7 +797,7 @@ function openImg(u){ if(!u) return; window.__imgU=u; const id=driveId(u); const 
 }
 const OCOLS = [["date","Ngày","📋 Thông tin đơn"],["oid","Order ID","📋 Thông tin đơn"],["acc","TK bán","📋 Thông tin đơn"],["seller","Seller","📋 Thông tin đơn"],["cust","Khách hàng","👤 Khách"],["prod","Sản phẩm","👕 Sản phẩm"],["sku","SKU","👕 Sản phẩm"],["link","Link SP","👕 Sản phẩm"],["size","Size","👕 Sản phẩm"],["color","Color","👕 Sản phẩm"],["sl","SL","👕 Sản phẩm"],["design","Design","🎨 Thiết kế"],["conf","✓","🎨 Thiết kế"],["factory","Xưởng","🚚 Vận chuyển & tài chính"],["offm","Order FFM","🚚 Vận chuyển & tài chính"],["track","Tracking","🚚 Vận chuyển & tài chính"],["status","Trạng thái","🚚 Vận chuyển & tài chính"],["sla","SLA","🚚 Vận chuyển & tài chính"],["cost","Chi phí","🚚 Vận chuyển & tài chính"],["img","Ảnh","🖼️ Ảnh"]];
 const OCORE = new Set(["oid","cust","prod","status"]);
-function ocHidden(){ if(!S.hideCols){ try{ const raw=localStorage.getItem("ffm_hidecols"); S.hideCols=new Set(raw?JSON.parse(raw):["link","offm","cost"]); }catch(e){ S.hideCols=new Set(); } } return S.hideCols; }
+function ocHidden(){ if(!S.hideCols){ try{ const raw=localStorage.getItem("ffm_hidecols"); S.hideCols=new Set(raw?JSON.parse(raw):[]); /* mặc định HIỆN tất cả cột — cả seller & FFM đều thấy thông tin của nhau; ai muốn gọn thì ⚙ Cột */ }catch(e){ S.hideCols=new Set(); } } return S.hideCols; }
 function ocStyle(){ const h=[...ocHidden()]; return h.length?`<style>${h.map(k=>`.oc-${k}{display:none}`).join("")}</style>`:""; }
 const GBG={"📋 Thông tin đơn":"g-info","👤 Khách":"g-cust","👕 Sản phẩm":"g-prod","🎨 Thiết kế":"g-des","🚚 Vận chuyển & tài chính":"g-ship"};
 function ocGroupHeader(){ const hid=ocHidden(); const g=[]; OCOLS.forEach(([k,,gr])=>{ if(hid.has(k))return; const last=g[g.length-1]; if(last&&last.g===gr)last.n++; else g.push({g:gr,n:1}); }); return g.map(x=>`<th colspan="${x.n}" class="${GBG[x.g]||''}">${x.g}</th>`).join(""); }
