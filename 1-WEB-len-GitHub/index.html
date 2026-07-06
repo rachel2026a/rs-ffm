@@ -98,6 +98,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 .otbl .oc-date input:not([disabled]),.otbl .oc-cust input:not([disabled]),.otbl .oc-prod select:not([disabled]),.otbl .oc-sku input:not([disabled]),.otbl .oc-link input:not([disabled]),.otbl .oc-size input:not([disabled]),.otbl .oc-color input:not([disabled]),.otbl .oc-sl input:not([disabled]),.otbl .oc-design input:not([disabled]),.otbl .oc-conf select:not([disabled]){border-color:#2563eb;background:#eff6ff}
 .otbl .oc-offm input:not([disabled]),.otbl .oc-status select:not([disabled]),.otbl .oc-cost input:not([disabled]){border-color:#16a34a;background:#f0fdf4}
 .otbl input[disabled],.otbl select[disabled]{background:#eef1f4;color:#9aa7b5;border:1px dashed #d3dae2;border-radius:5px}
+.otbl .oc-img{width:40px}
 @keyframes okf{0%{background:#86efac}100%{background:transparent}}
 .okflash{animation:okf .9s ease-out}
 .rsel{width:16px;height:16px;cursor:pointer}
@@ -204,7 +205,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.15</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.18</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -781,7 +782,19 @@ function wirePeriod(){
   if(t) t.onchange=e=>{ S.period.mode="custom"; S.period.to=e.target.value; S.page=1; go(S.view); };
 }
 /* ---- Ẩn/hiện cột bảng Đơn hàng (nhớ trên máy) ---- */
-const OCOLS = [["date","Ngày","📋 Thông tin đơn"],["oid","Order ID","📋 Thông tin đơn"],["acc","TK bán","📋 Thông tin đơn"],["seller","Seller","📋 Thông tin đơn"],["cust","Khách hàng","👤 Khách"],["prod","Sản phẩm","👕 Sản phẩm"],["sku","SKU","👕 Sản phẩm"],["link","Link SP","👕 Sản phẩm"],["size","Size","👕 Sản phẩm"],["color","Color","👕 Sản phẩm"],["sl","SL","👕 Sản phẩm"],["design","Design","🎨 Thiết kế"],["conf","✓","🎨 Thiết kế"],["factory","Xưởng","🚚 Vận chuyển & tài chính"],["offm","Order FFM","🚚 Vận chuyển & tài chính"],["track","Tracking","🚚 Vận chuyển & tài chính"],["status","Trạng thái","🚚 Vận chuyển & tài chính"],["sla","SLA","🚚 Vận chuyển & tài chính"],["cost","Chi phí","🚚 Vận chuyển & tài chính"]];
+function driveId(u){ if(!u) return ""; const m=String(u).match(/\/d\/([-\w]{20,})/)||String(u).match(/[?&]id=([-\w]{20,})/); return m?m[1]:""; }
+function imgThumb(u){ if(!u) return ""; const id=driveId(u); if(id) return "https://drive.google.com/thumbnail?id="+id+"&sz=w200"; if(/\.(png|jpe?g|gif|webp)(\?|$)/i.test(u)) return u; return ""; }
+function imgHover(e,u){ const th=imgThumb(u); if(!th) return; let d=document.getElementById("imgpop");
+  if(!d){ d=document.createElement("div"); d.id="imgpop"; d.style.cssText="position:fixed;z-index:99999;padding:4px;background:#fff;border:1px solid #d3dae2;border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,.25);pointer-events:none"; document.body.appendChild(d); }
+  d.innerHTML=`<img src="${esc(th.replace('sz=w200','sz=w360'))}" referrerpolicy="no-referrer" style="width:240px;height:auto;display:block;border-radius:4px;background:#eef1f5">`;
+  const x=Math.min(e.clientX+16, innerWidth-260), y=Math.min(e.clientY+16, innerHeight-260); d.style.left=x+"px"; d.style.top=y+"px"; d.style.display="block"; }
+function imgHoverOut(){ const d=document.getElementById("imgpop"); if(d) d.remove(); }
+function openImg(u){ if(!u) return; window.__imgU=u; const id=driveId(u); const big=id?("https://drive.google.com/thumbnail?id="+id+"&sz=w1200"):u;
+  openModal(`<div class="spread mb"><h2>🖼️ Ảnh thiết kế</h2><button class="btn btn-sm" onclick="closeModal()">✕</button></div>
+  <div style="text-align:center;min-height:120px"><img src="${esc(big)}" style="max-width:100%;max-height:66vh;border-radius:8px" referrerpolicy="no-referrer" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'muted',textContent:'Không tải được ảnh — ảnh Google Drive cần đặt chia sẻ Bất kỳ ai có link. Bấm mở link gốc bên dưới.'}))"></div>
+  <div class="flex mt"><a class="btn btn-p" href="${esc(u)}" target="_blank" rel="noopener">Mở link gốc ↗</a><button class="btn" onclick="copyText(window.__imgU)">📋 Copy link</button><button class="btn" onclick="closeModal()">Đóng</button></div>`);
+}
+const OCOLS = [["date","Ngày","📋 Thông tin đơn"],["oid","Order ID","📋 Thông tin đơn"],["acc","TK bán","📋 Thông tin đơn"],["seller","Seller","📋 Thông tin đơn"],["cust","Khách hàng","👤 Khách"],["prod","Sản phẩm","👕 Sản phẩm"],["sku","SKU","👕 Sản phẩm"],["link","Link SP","👕 Sản phẩm"],["size","Size","👕 Sản phẩm"],["color","Color","👕 Sản phẩm"],["sl","SL","👕 Sản phẩm"],["design","Design","🎨 Thiết kế"],["conf","✓","🎨 Thiết kế"],["factory","Xưởng","🚚 Vận chuyển & tài chính"],["offm","Order FFM","🚚 Vận chuyển & tài chính"],["track","Tracking","🚚 Vận chuyển & tài chính"],["status","Trạng thái","🚚 Vận chuyển & tài chính"],["sla","SLA","🚚 Vận chuyển & tài chính"],["cost","Chi phí","🚚 Vận chuyển & tài chính"],["img","Ảnh","🖼️ Ảnh"]];
 const OCORE = new Set(["oid","cust","prod","status"]);
 function ocHidden(){ if(!S.hideCols){ try{ const raw=localStorage.getItem("ffm_hidecols"); S.hideCols=new Set(raw?JSON.parse(raw):["link","offm","cost"]); }catch(e){ S.hideCols=new Set(); } } return S.hideCols; }
 function ocStyle(){ const h=[...ocHidden()]; return h.length?`<style>${h.map(k=>`.oc-${k}{display:none}`).join("")}</style>`:""; }
@@ -884,8 +897,9 @@ function renderOrders(){
         ${c&&!(c.label&&c.design&&c.tracking)?`<div class="small muted nowrap" title="Điều kiện đẩy xưởng">${c.label?"✅":"⬜"}L ${c.design?"✅":"⬜"}D ${c.tracking?"✅":"⬜"}T</div>`:""}</td>
       <td class="oc-sla nowrap ${sla?sla.cls:""}">${sla?sla.txt:""}</td>
       <td class="oc-cost right nowrap">${em&&it?`<input type="number" step="0.01" id="g_fulfillment_cost_${it.id}" value="${it.fulfillment_cost??''}" onchange="gridSave('${it.id}')" ${dF} style="width:72px">`:(it&&it.fulfillment_cost!=null?fmtMoney(it.fulfillment_cost,it.cost_currency):"")}</td>
+      <td class="oc-img center">${(()=>{ const u=it&&(it.design_link||it.listing_link); if(!u) return ""; return `<span data-u="${esc(u)}" onmouseenter="imgHover(event,this.dataset.u)" onmouseleave="imgHoverOut()" onclick="event.stopPropagation();openImg(this.dataset.u)" title="Rê chuột để xem · bấm để phóng to" style="cursor:pointer;font-size:16px">🖼️</span>`; })()}</td>
       </tr>`;
-    }).join("") || `<tr><td colspan="20" class="muted">Không có dòng nào khớp bộ lọc.</td></tr>`}
+    }).join("") || `<tr><td colspan="21" class="muted">Không có dòng nào khớp bộ lọc.</td></tr>`}
   </table></div>
   <div class="flex mt small muted" style="gap:18px;flex-wrap:wrap">
     <span>Tổng: <b>${new Set(rows.map(r=>r.o.id)).size}</b> đơn · <b>${rows.length}</b> dòng SP</span>
@@ -993,7 +1007,7 @@ function itemCard(o, it, i, ce, cf){
       <div><label>🔵 Size</label><input id="it_size_${it.id}" value="${esc(it.size||"")}" ${disS}></div>
       <div><label>🔵 Color</label><input id="it_color_${it.id}" value="${esc(it.color||"")}" ${disS}></div>
       <div><label>🔵 SL</label><input id="it_qty_${it.id}" type="number" min="1" value="${it.quantity||1}" ${disS}></div>
-      <div style="grid-column:span 2"><label>🔵 Link design</label><input id="it_design_${it.id}" value="${esc(it.design_link||"")}" ${disS}></div>
+      <div style="grid-column:span 2"><label>🔵 Link design ${it.design_link?`<span data-u="${esc(it.design_link)}" onclick="openImg(this.dataset.u)" style="cursor:pointer;color:#2563eb" title="Xem ảnh">· 🖼️ xem ảnh</span>`:""}</label><input id="it_design_${it.id}" value="${esc(it.design_link||"")}" ${disS}></div>
       <div><label>🔵 Confirm design</label><select id="it_conf_${it.id}" ${disS}><option value="0" ${(!it.confirm_design&&!it.needs_fix&&!it.factory_design)?"selected":""}>Chưa</option><option value="1" ${it.confirm_design?"selected":""}>✓ Done</option><option value="2" ${it.needs_fix?"selected":""}>Need Fix</option><option value="3" ${it.factory_design?"selected":""}>🏭 Xưởng design</option></select></div>
       <div><label>🔵 Deadline ship (US)</label><input id="it_dl_${it.id}" type="date" value="${it.deadline_ship||""}" ${disS}></div>
     </div>
@@ -1231,7 +1245,7 @@ function newSheetHTML(){
     <th></th></tr>
     ${NR.map((r,i)=>`<tr>
       <td class="muted center">${i+1}${i>0?`<br><button class="btn btn-sm" tabindex="-1" title="Chép Ngày/TK bán/Template từ dòng trên" onclick="copyRowDown(${i})" style="padding:0 5px;margin-top:2px">⤵</button>`:""}<button class="btn btn-sm" tabindex="-1" title="Chép Ngày/TK bán/Template của dòng này xuống MỌI dòng dưới có Order ID" onclick="copyColDown(${i})" style="padding:0 5px;margin-top:2px">⤓</button></td>
-      <td><div class="cellcopy"><input data-i="${i}" data-k="date" type="date" value="${r.date}"><span class="cpi" onclick="copyCell(${i},'date')" title="Copy ngày">📋</span></div></td>
+      <td><input data-i="${i}" data-k="date" type="date" value="${r.date}"></td>
       <td class="nowrap"><input data-i="${i}" data-k="order_id" value="${esc(r.order_id)}" placeholder="57738…"><span id="dupflag_${i}">${dupBadge(r.order_id)}</span></td>
       <td><div class="cellcopy"><input data-i="${i}" data-k="accname" list="dl_acc" value="${esc(r.accname!=null?r.accname:(r.acc&&maps.sellAcc[r.acc]?maps.sellAcc[r.acc].name:''))}" placeholder="gõ shop…" autocomplete="off"><span class="cpi" onclick="copyCell(${i},'accname')" title="Copy TK bán">📋</span></div></td>
       <td><textarea data-i="${i}" data-k="note" rows="1" placeholder="ghi chú">${esc(r.note)}</textarea></td>
