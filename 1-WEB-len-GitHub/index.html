@@ -206,7 +206,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.26</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.27</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -1962,9 +1962,10 @@ let catTab = "factories";
 function renderCatalog(){
   let tabs = [["factories","🏭 Xưởng"],["templates","🎨 Template"],["selling_accounts","🛒 TK bán hàng"]];
   if(isFFM()) tabs.push(["factory_accounts","🔑 TK xưởng"]);
+  tabs.push(["statuses","🔖 Trạng thái"]);
   $("#view").innerHTML = `
   <div class="spread mb"><div><h1>Danh mục</h1><p class="sub">Nguồn auto-fill & dropdown — sửa 1 chỗ, cả hệ thống dùng chung</p></div>
-  ${isFFM()?`<button class="btn btn-p" onclick="catForm()">＋ Thêm</button>`:""}</div>
+  ${isFFM()&&catTab!=="statuses"?`<button class="btn btn-p" onclick="catForm()">＋ Thêm</button>`:""}</div>
   <div class="tabs mb" style="max-width:520px">${tabs.map(([k,v])=>`<button class="${catTab===k?"on":""}" onclick="catTab='${k}';renderCatalog()">${v}</button>`).join("")}</div>
   <div id="catBody"></div>`;
   const B = $("#catBody"); const cf = isFFM();
@@ -1996,6 +1997,13 @@ function renderCatalog(){
     ${S.sellAccs.sort((a,b)=>a.name.localeCompare(b.name)).map(a=>`<tr><td><b>${esc(a.name)}</b></td><td>${a.platform}</td>
     <td class="center">${a.active!==false?"✓":"—"}</td><td>${esc(a.note||"")}</td>
     ${cf?`<td><button class="btn btn-sm" onclick="catForm('${a.id}')">✎</button></td>`:""}</tr>`).join("")}</table></div></div>`;
+  }
+  if(catTab==="statuses"){
+    const MEAN={new:"Đơn mới nhập, chưa có gì",waiting_design:"Có link design, chờ Confirm",design_ok:"Đã Confirm design (đủ điều kiện design)",ordered:"FFM đã đẩy xưởng",in_production:"Xưởng đang sản xuất",has_tracking:"Đã có tracking",synced:"Đã đồng bộ về sàn",delivered:"Khách đã nhận",issue:"Có sự cố",cancelled:"Đơn huỷ"};
+    B.innerHTML = `<div class="card"><p class="small muted mb">Danh sách trạng thái là <b>cố định do hệ thống</b> — gắn với logic đẩy xưởng / lọc / cảnh báo / màu. Chỉ để tham chiếu, <b>không sửa tại đây</b> (thêm/đổi trạng thái cần chỉnh code + DB).</p>
+    <div class="tw"><table><tr><th>Trạng thái</th><th>Ý nghĩa</th></tr>
+    ${Object.entries(STATUS_VI).map(([k,v])=>`<tr><td><span class="badge ${STATUS_BADGE[k]||'b-gray'}">${esc(v)}</span></td><td class="small muted">${esc(MEAN[k]||'')}</td></tr>`).join("")}
+    </table></div></div>`;
   }
   if(catTab==="factory_accounts"){
     const byFact = [...S.factAccs].sort((a,b)=>(maps.factory[a.factory_id]?.name||"").localeCompare(maps.factory[b.factory_id]?.name||""));
