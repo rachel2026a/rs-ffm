@@ -206,7 +206,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.30</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.31</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -454,7 +454,8 @@ function isReadyToPush(o, it){
   if(!it) return false;
   const c = readyChecks(o,it);
   return c.label && c.design && c.tracking && !it.factory_order_id
-    && !["ordered","in_production","has_tracking","synced","delivered","cancelled"].includes(it.item_status);
+    && !it.pushed_at
+    && !["ordered","in_production","synced","delivered","cancelled"].includes(it.item_status);
 }
 /* SLA: đếm theo GIỜ tới hạn (deadline = 23:59 giờ US Eastern) — góp ý 7.1 */
 function slaInfo(it){
@@ -993,7 +994,7 @@ function itemCard(o, it, i, ce, cf){
       <div class="flex"><span class="badge ${STATUS_BADGE[it.item_status]}">${STATUS_VI[it.item_status]}</span>
       ${ce?`<button class="btn btn-sm btn-danger" onclick="delItem('${it.id}','${o.id}')">🗑</button>`:""}</div></div>
     ${(()=>{ const ready=c.label&&c.design&&c.tracking;
-        const pushed=!!it.factory_order_id||["ordered","in_production","has_tracking","synced","delivered"].includes(it.item_status);
+        const pushed=!!it.factory_order_id||!!it.pushed_at||["ordered","in_production","synced","delivered"].includes(it.item_status);
         const miss=[!c.label&&"Label",!c.design&&"Confirm Design",!c.tracking&&"Tracking"].filter(Boolean);
         let cls,txt;
         if(pushed){ cls="b-green"; txt="🟢 FFM đã tiếp nhận / đẩy xưởng"; }
@@ -1385,7 +1386,7 @@ async function saveNewRows(){
           if(error) throw error; Object.assign(reuse, data||base); nItems++;
         } else {
           toInsert.push({ order_id:order.id, ...base, source_line: existing + toInsert.length + 1,
-            item_status: r.tracking ? "has_tracking" : ((r.conf==="1"||r.conf==="3") ? "design_ok" : (r.design ? "waiting_design" : "new")) });
+            item_status: (r.conf==="1"||r.conf==="3") ? "design_ok" : (r.design ? "waiting_design" : "new") });
         }
       }
       if(toInsert.length){ const { data: its, error: e2 } = await db.from("order_items").insert(toInsert).select(); if(e2) throw e2; S.items.push(...its); nItems += its.length; }
