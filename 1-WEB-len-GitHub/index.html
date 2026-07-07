@@ -88,9 +88,9 @@ tr:hover td{background:var(--panel2)}
 .orow:hover td{background:#e8f0fb}
 /* tô nhóm cột cho dễ nhìn */
 .oc-cust{background:#f5faff}
-.oc-prod,.oc-sku,.oc-link,.oc-size,.oc-color,.oc-sl{background:#f4fdf7}
-.oc-design,.oc-conf{background:#faf6ff}
-.oc-factory,.oc-offm,.oc-track,.oc-status,.oc-sla,.oc-cost{background:#fffaf2}
+.oc-prod,.oc-sku,.oc-link,.oc-size,.oc-color,.oc-sl,.oc-ptype,.oc-dim{background:#f4fdf7}
+.oc-design,.oc-conf,.oc-odesign,.oc-itemnote{background:#faf6ff}
+.oc-factory,.oc-offm,.oc-track,.oc-trackst,.oc-carrier,.oc-pushed,.oc-deadline,.oc-sla,.oc-cost,.oc-currency{background:#fffaf2}
 .oc-cust,.oc-prod,.oc-design,.oc-factory{border-left:2px solid #dfe6ee}
 th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 .thgroup .g-cust{background:#e6f2ff}.thgroup .g-prod{background:#e7f9ec}.thgroup .g-des{background:#f1e9ff}.thgroup .g-ship{background:#fff0dd}
@@ -206,7 +206,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.32</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.34</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -856,7 +856,6 @@ function renderOrders(){
     <input id="fQ" placeholder="🔍 Order ID / khách / note / color / tracking..." style="flex:1;min-width:220px" value="${esc(f.q)}">
     <input id="fSeller" list="dl_fseller" value="${esc(f.seller||'')}" placeholder="Tất cả seller" autocomplete="off" style="min-width:130px"><datalist id="dl_fseller">${sellers.map(s=>`<option value="${esc(s)}">`).join("")}</datalist>
     <input id="fFactory" list="dl_ffactory" value="${esc(f.factory&&maps.factory[f.factory]?maps.factory[f.factory].name:'')}" placeholder="Tất cả xưởng" autocomplete="off" style="min-width:150px"><datalist id="dl_ffactory">${S.factories.map(x=>`<option value="${esc(x.name)}">`).join("")}</datalist>
-    <select id="fStatus"><option value="">Mọi trạng thái</option>${Object.entries(STATUS_VI).map(([k,v])=>`<option value="${k}" ${f.status===k?"selected":""}>${v}</option>`).join("")}</select>
     <label class="flex" style="margin:0"><input type="checkbox" id="fMulti" ${f.multi?"checked":""} style="width:auto"> Đơn nhiều SP</label>
     <button class="btn btn-sm" onclick="batchLookup()">📋 Dán nhiều mã (đối soát)</button>
     <button class="btn btn-sm" onclick="S.filters={q:'',seller:'',factory:'',status:'',multi:false,special:'',dateFrom:'',dateTo:'',account:'',sort:'date',sortDir:'desc',batch:null};S.page=1;renderOrders()">Xóa lọc</button>
@@ -932,7 +931,6 @@ function renderOrders(){
   $("#fQ").oninput = debounce(e=>{ S.filters.q=e.target.value; S.page=1; renderOrders(); const el=$("#fQ"); el.focus(); el.setSelectionRange(el.value.length,el.value.length); },350);
   $("#fSeller").onchange = e=>{ S.filters.seller=e.target.value.trim(); S.page=1; renderOrders(); };
   $("#fFactory").onchange = e=>{ const x=S.factories.find(z=>z.name===e.target.value.trim()); S.filters.factory=x?x.id:""; S.page=1; renderOrders(); };
-  $("#fStatus").onchange = e=>{ S.filters.status=e.target.value; S.page=1; renderOrders(); };
   $("#fMulti").onchange = e=>{ S.filters.multi=e.target.checked; S.page=1; renderOrders(); };
   $("#fAcc").onchange  = e=>{ const a=S.sellAccs.find(z=>z.name===e.target.value.trim()); S.filters.account=a?a.id:""; S.page=1; renderOrders(); };
   $("#fSort").onchange = e=>{ S.filters.sort=e.target.value; renderOrders(); };
