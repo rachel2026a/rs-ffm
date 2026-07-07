@@ -206,7 +206,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.25</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.26</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -236,7 +236,7 @@ const S = {
   balances: [],                    // v_factory_balance
   rows: [],                        // item-per-row đã join (bảng đơn hàng)
   page: 1, perPage: 100,
-  filters: { q:"", seller:"", factory:"", status:"", multi:false, special:"", dateFrom:"", dateTo:"", account:"", sort:"date", sortDir:"desc", batch:null },
+  filters: { q:"", seller:"", factory:"", status:"", multi:false, special:"", dateFrom:"", dateTo:"", account:"", sort:"created", sortDir:"desc", batch:null },
   view: "dash",
   period: { mode:"all", from:"", to:"" },   /* bộ lọc thời gian dùng chung */
 };
@@ -733,7 +733,7 @@ function filteredRows(){
   });
 }
 function goFilter(patch){
-  S.filters = Object.assign({q:"",seller:"",factory:"",status:"",multi:false,special:"",dateFrom:"",dateTo:"",account:"",sort:"date",sortDir:"desc",batch:null}, patch||{});
+  S.filters = Object.assign({q:"",seller:"",factory:"",status:"",multi:false,special:"",dateFrom:"",dateTo:"",account:"",sort:"created",sortDir:"desc",batch:null}, patch||{});
   S.page = 1; go("orders");
 }
 function copyText(t){ if(!t) return;
@@ -745,8 +745,12 @@ function sortRows(rows){
   const f=S.filters, dir=f.sortDir==="asc"?1:-1;
   const key=r=>{ if(f.sort==="sla"){ const x=slaInfo(r.it); return x?x.hrs:1e9; }
     if(f.sort==="cost"){ return r.it&&r.it.fulfillment_cost!=null?Number(r.it.fulfillment_cost):-1; }
-    return r.o.order_date||""; };
-  return rows.slice().sort((a,b)=>{ const ka=key(a),kb=key(b); return ka<kb?-dir:ka>kb?dir:0; });
+    if(f.sort==="date"){ return r.o.order_date||""; }
+    return r.o.created_at||r.o.order_date||""; };   /* mặc định "created" = thời điểm nhập */
+  return rows.slice().sort((a,b)=>{ const ka=key(a),kb=key(b);
+    if(ka<kb) return -dir; if(ka>kb) return dir;
+    if(a.o.id!==b.o.id) return a.o.id<b.o.id?-1:1;                 /* SP cùng đơn nằm cạnh nhau */
+    return ((a.it&&a.it.source_line)||0)-((b.it&&b.it.source_line)||0); });
 }
 /* ===== BỘ LỌC THỜI GIAN DÙNG CHUNG ===== */
 function periodBounds(mode){
@@ -810,7 +814,7 @@ function toggleCol(k,show){ const h=ocHidden(); if(show)h.delete(k); else h.add(
 /* ---- Bộ lọc đã lưu ---- */
 function savedViews(){ try{return JSON.parse(localStorage.getItem("ffm_savedviews")||"[]");}catch(e){return [];} }
 function saveView(){ const name=(prompt("Đặt tên cho bộ lọc hiện tại:")||"").trim(); if(!name)return; const vs=savedViews(); const f={...S.filters}; delete f.batch; vs.push({name,f}); localStorage.setItem("ffm_savedviews",JSON.stringify(vs)); toast("Đã lưu bộ lọc."); renderOrders(); }
-function applyView(i){ const v=savedViews()[i]; if(!v)return; S.filters=Object.assign({q:"",seller:"",factory:"",status:"",multi:false,special:"",dateFrom:"",dateTo:"",account:"",sort:"date",sortDir:"desc",batch:null}, v.f); S.page=1; renderOrders(); }
+function applyView(i){ const v=savedViews()[i]; if(!v)return; S.filters=Object.assign({q:"",seller:"",factory:"",status:"",multi:false,special:"",dateFrom:"",dateTo:"",account:"",sort:"created",sortDir:"desc",batch:null}, v.f); S.page=1; renderOrders(); }
 function delView(i){ const vs=savedViews(); vs.splice(i,1); localStorage.setItem("ffm_savedviews",JSON.stringify(vs)); renderOrders(); }
 /* ---- Phím tắt: Ctrl+S lưu đơn, Ctrl+K nhảy tới ô tìm ---- */
 if(typeof document!=="undefined" && !window._ffmKbd){ window._ffmKbd=1; document.addEventListener("keydown",e=>{
@@ -854,7 +858,7 @@ function renderOrders(){
   </div>
   <div class="flex mt" style="gap:8px;flex-wrap:wrap">
     <input id="fAcc" list="dl_facc" value="${esc(f.account&&maps.sellAcc[f.account]?maps.sellAcc[f.account].name:'')}" placeholder="Tất cả TK bán" autocomplete="off" style="min-width:130px"><datalist id="dl_facc">${S.sellAccs.map(a=>`<option value="${esc(a.name)}">`).join("")}</datalist>
-    <select id="fSort"><option value="date" ${f.sort==="date"?"selected":""}>Sắp xếp: Ngày</option><option value="sla" ${f.sort==="sla"?"selected":""}>Sắp xếp: SLA</option><option value="cost" ${f.sort==="cost"?"selected":""}>Sắp xếp: Chi phí</option></select>
+    <select id="fSort"><option value="created" ${f.sort==="created"?"selected":""}>Sắp xếp: Mới nhập</option><option value="date" ${f.sort==="date"?"selected":""}>Sắp xếp: Ngày order</option><option value="sla" ${f.sort==="sla"?"selected":""}>Sắp xếp: SLA</option><option value="cost" ${f.sort==="cost"?"selected":""}>Sắp xếp: Chi phí</option></select>
     <button class="btn btn-sm" onclick="S.filters.sortDir=S.filters.sortDir==='asc'?'desc':'asc';renderOrders()">${f.sortDir==="asc"?"↑ Tăng dần":"↓ Giảm dần"}</button>
     <button class="btn btn-sm" onclick="colMenu()">⚙ Cột</button>
     <button class="btn btn-sm ${S.editMode?'btn-p':''}" onclick="S.editMode=!S.editMode;localStorage.setItem('ffm_editmode',S.editMode?'1':'0');renderOrders()">✏️ Sửa nhanh</button>
