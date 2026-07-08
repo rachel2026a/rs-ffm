@@ -206,7 +206,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.37</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.38</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -888,7 +888,7 @@ function renderOrders(){
     ${pageRows.map(r=>{
       const { o, it } = r; const sla = slaInfo(it); const c = it?readyChecks(o,it):null;
       const em=S.editMode, dS=(canEditOrder(o)&&S.me.role!=="ffm")?"":"disabled", dF=isFFM()?"":"disabled", dT=(canEditOrder(o)||isFFM())?"":"disabled", stO=x=>Object.entries(STATUS_VI).map(([k,v])=>`<option value="${k}" ${x===k?"selected":""}>${v}</option>`).join("");
-      return `<tr onclick="rowOpen(event,'${o.id}')" class="orow">
+      return `<tr onclick="rowOpen(event,'${o.id}','${it?it.id:''}')" class="orow">
       <td onclick="event.stopPropagation()" style="text-align:center">${it?`<input type="checkbox" class="rsel" data-id="${it.id}" ${S.sel&&S.sel.has(it.id)?"checked":""} onclick="toggleSel('${it.id}',this.checked)">`:""}</td>
       <td class="oc-date nowrap">${em&&it?`<input type="date" id="g_order_date_${it.id}" value="${o.order_date||''}" onchange="gridSave('${it.id}')" ${dS}>`:fmtD(o.order_date)}</td>
       <td class="oc-oid nowrap"><a href="#" onclick="openOrder('${o.id}');return false">${esc(o.platform_order_id)}</a> <span class="cpy" data-copy="${esc(o.platform_order_id)}" title="Copy Order ID" style="cursor:pointer">📋</span> <a href="#" onclick="openOrder('${o.id}');return false" title="Mở & sửa/cập nhật đơn" style="text-decoration:none">✏️</a>${r.multi?' <span class="badge b-purple" title="Đơn nhiều sản phẩm">⧉</span>':""}${S.dupOrders&&S.dupOrders.has(o.id)?' <span class="badge b-yellow" title="Trùng tên/địa chỉ khách với đơn khác">👥</span>':""}</td>
@@ -962,18 +962,98 @@ function canEditOrder(o){
   if(S.me.edit_scope==="own") return o.seller_id===S.me.id;
   return false;
 }
-function rowOpen(e,id){ if(S.editMode) return; if(e.target.closest("a,button,input,select,label,.cpy")) return; openOrder(id); }
-function openOrder(orderId){
+function rowOpen(e,oid,itemId){
+  if(S.editMode) return;
+  if(e.target.closest("a,button,input,select,label,.cpy,[data-u]")) return;
+  const td=e.target.closest("td[class*='oc-']"); if(!td) return;
+  const cls=[...td.classList].find(c=>c.startsWith("oc-")); if(!cls) return;
+  cellPeek(oid,itemId,cls.slice(3));
+}
+function fieldInfo(o,it,k){
+  const acc=o.selling_account_id&&maps.sellAcc[o.selling_account_id]?maps.sellAcc[o.selling_account_id].name:"";
+  const fac=it&&it.factory_id&&maps.factory[it.factory_id]?maps.factory[it.factory_id].name:"";
+  const conf=it?(it.factory_design?"Xưởng design":it.needs_fix?"Need Fix":it.confirm_design?"Done":"Chưa"):"";
+  const sla=it?slaInfo(it):null;
+  const M={
+    date:["Ngày order",fmtD(o.order_date)], oid:["Order ID",o.platform_order_id],
+    acc:["TK bán hàng",acc], seller:["Seller",sellerName(o)],
+    label:["Link Label (TTS)",o.label_link||""], labelfee:["Phí Label (USD)",o.label_fee!=null?String(o.label_fee):""],
+    cust:["Khách hàng",[o.customer_name,o.customer_contact,o.customer_address].filter(Boolean).join("\n")],
+    prod:["Sản phẩm",it?(itemLabel(it)+(it.product_title?"\n"+it.product_title:"")):""],
+    sku:["Phôi / SKU",(it&&it.sku_phoi)||""], link:["Link sản phẩm",(it&&it.listing_link)||""],
+    size:["Size",(it&&it.size)||""], color:["Color",(it&&it.color)||""], sl:["Số lượng",it?String(it.quantity==null?"":it.quantity):""],
+    ptype:["Product Type",(it&&it.product_type)||""], dim:["Dimension",(it&&it.dimension)||""],
+    design:["Link design",(it&&it.design_link)||""], conf:["Confirm design",conf],
+    odesign:["Order Design",(it&&it.order_design_code)||""], itemnote:["Note SP",(it&&it.note)||""],
+    factory:["Xưởng",fac], offm:["Order FFM",(it&&it.factory_order_id)||""],
+    track:["Tracking",(it&&it.tracking_number)||o.tracking_number||""], trackst:["Tracking status",(it&&it.tracking_status)||""],
+    carrier:["Carrier",(it&&it.carrier)||""], pushed:["Ngày đẩy đơn",it&&it.pushed_at?fmtD(it.pushed_at):""],
+    deadline:["Deadline ship",it&&it.deadline_ship?fmtD(it.deadline_ship):""],
+    sla:["SLA",sla?sla.txt:""], cost:["Chi phí",it&&it.fulfillment_cost!=null?fmtMoney(it.fulfillment_cost,it.cost_currency):""],
+    currency:["Tiền tệ",(it&&it.cost_currency)||""], img:["Ảnh (link)",(it&&(it.design_link||it.listing_link))||""]
+  };
+  return M[k]||["",""];
+}
+function cellPeek(oid,itemId,key){
+  const o=maps.order[oid]; if(!o) return; const it=S.items.find(x=>x.id===itemId);
+  const fi=fieldInfo(o,it,key), label=fi[0], val=fi[1]; window.__peekVal=val||"";
+  const isLink=String(val||"").startsWith("http");
+  openModal(`<div class="spread mb"><h2>${esc(label)}</h2><button class="btn btn-sm" onclick="closeModal()">✕</button></div>
+    <p class="small muted">Đơn ${esc(o.platform_order_id)}</p>
+    <div style="white-space:pre-wrap;word-break:break-word;background:#f7f9fc;border:1px solid var(--border);border-radius:8px;padding:10px;min-height:42px">${val?esc(val):'<span class="muted">(trống)</span>'}</div>
+    <div class="flex mt">${val?`<button class="btn" onclick="copyText(window.__peekVal)">📋 Copy</button>`:""}${isLink?`<a class="btn" href="${esc(val)}" target="_blank" rel="noopener">Mở link ↗</a>`:""}<button class="btn btn-p" onclick="openOrder('${oid}')">✏️ Mở đơn</button><button class="btn" onclick="closeModal()">Đóng</button></div>`);
+}
+function vrow(label,val,wide){ return `<div${wide?' style="grid-column:1/-1"':''}><label>${label}</label><div style="min-height:19px;word-break:break-word;white-space:pre-wrap;font-size:13px">${val?esc(val):'<span class="muted">—</span>'}</div></div>`; }
+function vlink(label,val,wide){ return `<div${wide?' style="grid-column:1/-1"':''}><label>${label}</label><div style="word-break:break-all;font-size:13px">${val?`<a href="${esc(val)}" target="_blank" rel="noopener">${esc(val)}</a>`:'<span class="muted">—</span>'}</div></div>`; }
+function orderViewHTML(o){
+  return `<div class="card mb"><h3>🔵 Thông tin đơn & khách</h3><div class="fgrid">
+    ${vrow("Ngày order",fmtD(o.order_date))}
+    ${vrow("TK bán hàng",o.selling_account_id&&maps.sellAcc[o.selling_account_id]?maps.sellAcc[o.selling_account_id].name:"")}
+    ${vrow("Khách — tên",o.customer_name)}
+    ${vrow("SĐT",o.customer_contact)}
+    ${vrow("Địa chỉ",o.customer_address,1)}
+    ${vlink("Link Label (TTS)",o.label_link,1)}
+    ${vrow("Label fee (USD)",o.label_fee!=null?String(o.label_fee):"")}
+    ${vrow("Tracking (sàn)",o.tracking_number)}
+    ${vrow("Seller note",o.seller_note,1)}
+  </div></div>`;
+}
+function itemViewCard(o,it,i){
+  const c=readyChecks(o,it);
+  const ready=c.label&&c.design&&c.tracking;
+  const pushed=!!it.factory_order_id||!!it.pushed_at||["ordered","in_production","synced","delivered"].includes(it.item_status);
+  const miss=[!c.label&&"Label",!c.design&&"Confirm Design",!c.tracking&&"Tracking"].filter(Boolean);
+  let cls,txt; if(pushed){cls="b-green";txt="🟢 FFM đã tiếp nhận / đẩy xưởng";} else if(ready){cls="b-blue";txt="✅ Seller xong 3 điều kiện → ⏳ CHỜ FFM đẩy xưởng";} else {cls="b-yellow";txt="🔵 Đang chờ Seller — còn thiếu: "+miss.join(", ");}
+  const conf=it.factory_design?"🏭 Xưởng design":it.needs_fix?"Need Fix":it.confirm_design?"✓ Done":"Chưa";
+  const facc=it.factory_account_id&&S.factAccs.find(a=>a.id===it.factory_account_id);
+  const tmplName=it.template_id&&maps.template[it.template_id]?((maps.template[it.template_id].code?maps.template[it.template_id].code+" · ":"")+maps.template[it.template_id].name):(it.template_code||"");
+  const desLink=it.design_link?`${vlink("Link design",it.design_link,1)}`.replace("</label>",` <span data-u="${esc(it.design_link)}" onclick="openImg(this.dataset.u)" style="cursor:pointer;color:#2563eb">· 🖼️ xem ảnh</span></label>`):vlink("Link design",it.design_link,1);
+  return `<div class="card mb"><div class="spread"><h3>SP ${i+1} ${it.product_title?`<span class="muted small">· ${esc(it.product_title.slice(0,70))}</span>`:""}</h3><span class="badge ${STATUS_BADGE[it.item_status]}">${STATUS_VI[it.item_status]}</span></div>
+    <div class="mb"><span class="badge ${cls}" style="font-size:12px;padding:4px 10px">${txt}</span></div>
+    <div class="checklist small mb">Điều kiện đẩy xưởng: <span>${c.label?"✅":"⬜"} Label</span><span>${c.design?"✅":"⬜"} Confirm Design</span><span>${c.tracking?"✅":"⬜"} Tracking</span></div>
+    <div class="fgrid">
+      ${vrow("Template",tmplName,1)}
+      ${vrow("Product Type",it.product_type)}${vrow("Xưởng",it.factory_id&&maps.factory[it.factory_id]?maps.factory[it.factory_id].name:"")}${vrow("Dimension",it.dimension)}
+      ${vrow("Phôi / SKU",it.sku_phoi)}${vrow("Size",it.size)}${vrow("Color",it.color)}${vrow("SL",String(it.quantity==null?"":it.quantity))}
+      ${desLink}
+      ${vrow("Confirm design",conf)}${vrow("Order Design",it.order_design_code)}${vrow("Deadline ship",it.deadline_ship?fmtD(it.deadline_ship):"")}
+      ${vrow("🟢 TK xưởng",facc?((maps.factory[facc.factory_id]?.name||"")+" · "+facc.email):"")}${vrow("🟢 Order FFM",it.factory_order_id)}${vrow("🟢 Tracking",it.tracking_number)}
+      ${vrow("🟢 Tracking status",it.tracking_status)}${vrow("🟢 Carrier",it.carrier)}${vrow("🟢 Ngày đẩy đơn",it.pushed_at?fmtD(it.pushed_at):"")}
+      ${vrow("🟢 Chi phí",it.fulfillment_cost!=null?fmtMoney(it.fulfillment_cost,it.cost_currency):"")}${vrow("🟢 Tiền tệ",it.cost_currency)}${vrow("🟢 Note",it.note,1)}
+    </div></div>`;
+}
+function openOrder(orderId, edit){
   const o = maps.order[orderId]; if(!o) return;
   const items = S.items.filter(i=>i.order_id===orderId).sort((a,b)=>(a.source_line||0)-(b.source_line||0));
   const ce = canEditOrder(o), cf = isFFM();
+  const head = `<div class="spread mb"><h2>Đơn ${esc(o.platform_order_id)} <span class="badge b-gray">${o.platform}</span></h2>
+    <div class="flex">${edit?`<button class="btn btn-sm" onclick="openOrder('${orderId}')">👁 Xem</button>`:(ce?`<button class="btn btn-p btn-sm" onclick="openOrder('${orderId}',true)">✏️ Sửa đơn</button>`:"")}<button class="btn btn-sm" onclick="closeModal()">✕</button></div></div>
+  <p class="sub">Seller: <b>${esc(sellerName(o))}</b> · tạo ${o.created_at?fmtD(String(o.created_at).slice(0,10)):"—"} · 🔵 = Seller nhập · 🟢 = FFM cập nhật</p>`;
+  if(!edit){ openModal(head + orderViewHTML(o) + items.map((it,i)=>itemViewCard(o,it,i)).join("") + (ce?`<div class="flex mt"><button class="btn btn-p" onclick="openOrder('${orderId}',true)">✏️ Sửa đơn này</button><button class="btn" onclick="closeModal()">Đóng</button></div>`:`<div class="flex mt"><button class="btn btn-sm" onclick="claimCare('${o.id}')">🤝 Nhận hỗ trợ (sửa tạm 24h)</button><button class="btn" onclick="closeModal()">Đóng</button></div>`)); return; }
   const dis = ce?"":"disabled";
   const sellOpts = S.sellAccs.filter(a=>a.active!==false).map(a=>`<option value="${a.id}" ${o.selling_account_id===a.id?"selected":""}>${esc(a.name)}</option>`).join("");
 
-  openModal(`
-  <div class="spread mb"><h2>Đơn ${esc(o.platform_order_id)} <span class="badge b-gray">${o.platform}</span></h2>
-    <button class="btn btn-sm" onclick="closeModal()">✕</button></div>
-  <p class="sub">Seller: <b>${esc(sellerName(o))}</b> · tạo ${o.created_at?fmtD(String(o.created_at).slice(0,10)):"—"} · 🔵 = Seller nhập · 🟢 = FFM cập nhật</p>
+  openModal(head + `
   <div class="card mb"><h3>🔵 Thông tin đơn & khách</h3>
     <div class="fgrid">
       <div><label>Ngày order</label><input id="od_date" type="date" value="${o.order_date||""}" ${dis}></div>
