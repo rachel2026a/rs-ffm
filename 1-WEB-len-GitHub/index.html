@@ -206,7 +206,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.34</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.35</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -373,7 +373,7 @@ async function boot(){
 }
 /* ===== Realtime: 2 người cùng thấy cập nhật (cần bật publication trong Supabase) ===== */
 let _rtCh=null, _rtT=null, _rtPending=false;
-function editingNow(){ return S.view==="new" || S.view==="sheet" || (S.view==="orders" && S.showNew); }
+function editingNow(){ const mb=document.getElementById("modalBg"); const modalOpen=mb&&mb.classList.contains("show"); return modalOpen || S.view==="new" || S.view==="sheet" || (S.view==="orders" && S.showNew); }
 async function rtRefresh(){ try{ await loadAll(); buildNav(); go(S.view); }catch(e){} }
 function realtimeInit(){
   if(_rtCh) return;
