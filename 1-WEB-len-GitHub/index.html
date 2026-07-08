@@ -206,7 +206,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.35</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.36</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -271,7 +271,7 @@ function fail(e){ console.error(e); toast((e && (e.message||e.error_description)
 
 function openModal(html){ $("#modalBox").innerHTML = html; $("#modalBg").classList.add("show"); }
 function closeModal(){ $("#modalBg").classList.remove("show"); $("#modalBox").innerHTML=""; }
-$("#modalBg").addEventListener("click", e=>{ if(e.target.id==="modalBg") closeModal(); });
+/* Bỏ đóng popup khi bấm nền ngoài — tránh miss-click mất phần đang sửa. Chỉ đóng bằng ✕ / Lưu / Hủy. */
 
 function csvDownload(filename, header, rows){
   const q = (v)=>{ v = v==null? "" : String(v); return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; };
