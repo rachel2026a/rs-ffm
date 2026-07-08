@@ -206,7 +206,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.36</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.37</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -368,7 +368,8 @@ async function boot(){
   $("#appShell").hidden = false;
   $("#userChip").textContent = me.full_name + " · " + (ROLE_VI[me.role]||me.role);
   try{ await loadAll(); }catch(e){ fail(e); }
-  buildNav(); go(S.view);
+  buildNav();
+  let _v=localStorage.getItem("ffm_view"); if(!_v||!MENU.some(m=>m.id===_v&&canSee(m))) _v="dash"; go(_v);
   realtimeInit();
 }
 /* ===== Realtime: 2 người cùng thấy cập nhật (cần bật publication trong Supabase) ===== */
@@ -549,6 +550,7 @@ function buildNav(){
   $$("#nav .item").forEach(el=> el.onclick = ()=>{ go(el.dataset.v); $("#sidebar").classList.remove("open"); });
 }
 function go(v){
+  try{ localStorage.setItem("ffm_view", v); }catch(_){}
   if(v!=="orders"){ const _sb=document.getElementById("selbar"); if(_sb)_sb.remove(); if(S.sel)S.sel.clear(); }
   S.view = v; buildNav();
   const R = { dash:renderDash, todo:renderTodo, orders:renderOrders, sheet:renderSheet, new:renderNew, import:renderImport, tasks:renderTasks,
@@ -1067,7 +1069,7 @@ async function saveOrder(id){
   };
   const { error } = await db.from("orders").update(patch).eq("id", id);
   if(error) return fail(error);
-  Object.assign(maps.order[id], patch); buildRows(); toast("Đã lưu đơn.");
+  Object.assign(maps.order[id], patch); buildRows(); toast("Đã lưu đơn."); closeModal(); go(S.view);
 }
 async function saveItemSeller(id){
   const patch = {
@@ -1087,7 +1089,7 @@ async function saveItemSeller(id){
   };
   const { error } = await db.from("order_items").update(patch).eq("id", id);
   if(error) return fail(error);
-  const it = S.items.find(x=>x.id===id); Object.assign(it, patch); buildRows(); toast("Đã lưu phần Seller.");
+  const it = S.items.find(x=>x.id===id); Object.assign(it, patch); buildRows(); toast("Đã lưu phần Seller."); closeModal(); go(S.view);
 }
 async function saveItemFFM(id){
   const patch = {
@@ -1103,7 +1105,7 @@ async function saveItemFFM(id){
   };
   const { error } = await db.from("order_items").update(patch).eq("id", id);
   if(error) return fail(error);
-  const it = S.items.find(x=>x.id===id); Object.assign(it, patch); buildRows(); toast("Đã lưu phần FFM.");
+  const it = S.items.find(x=>x.id===id); Object.assign(it, patch); buildRows(); toast("Đã lưu phần FFM."); closeModal(); go(S.view);
 }
 async function addItem(orderId){
   const { data, error } = await db.from("order_items").insert({ order_id: orderId, quantity: 1 }).select().single();
