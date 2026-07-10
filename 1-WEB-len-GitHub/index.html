@@ -206,7 +206,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.38</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.41</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -1036,10 +1036,11 @@ function itemViewCard(o,it,i){
       ${vrow("Product Type",it.product_type)}${vrow("Xưởng",it.factory_id&&maps.factory[it.factory_id]?maps.factory[it.factory_id].name:"")}${vrow("Dimension",it.dimension)}
       ${vrow("Phôi / SKU",it.sku_phoi)}${vrow("Size",it.size)}${vrow("Color",it.color)}${vrow("SL",String(it.quantity==null?"":it.quantity))}
       ${desLink}
+      ${vlink("Link sản phẩm",it.listing_link,1)}
       ${vrow("Confirm design",conf)}${vrow("Order Design",it.order_design_code)}${vrow("Deadline ship",it.deadline_ship?fmtD(it.deadline_ship):"")}
       ${vrow("🟢 TK xưởng",facc?((maps.factory[facc.factory_id]?.name||"")+" · "+facc.email):"")}${vrow("🟢 Order FFM",it.factory_order_id)}${vrow("🟢 Tracking",it.tracking_number)}
       ${vrow("🟢 Tracking status",it.tracking_status)}${vrow("🟢 Carrier",it.carrier)}${vrow("🟢 Ngày đẩy đơn",it.pushed_at?fmtD(it.pushed_at):"")}
-      ${vrow("🟢 Chi phí",it.fulfillment_cost!=null?fmtMoney(it.fulfillment_cost,it.cost_currency):"")}${vrow("🟢 Tiền tệ",it.cost_currency)}${vrow("🟢 Note",it.note,1)}
+      ${vrow("🟢 Chi phí",it.fulfillment_cost!=null?fmtMoney(it.fulfillment_cost,it.cost_currency):"")}${vrow("🟢 Tiền tệ",it.cost_currency)}${vrow("🔵 Note",it.note,1)}
     </div></div>`;
 }
 function openOrder(orderId, edit){
@@ -1107,8 +1108,11 @@ function itemCard(o, it, i, ce, cf){
       <div><label>🔵 Color</label><input id="it_color_${it.id}" value="${esc(it.color||"")}" ${disS}></div>
       <div><label>🔵 SL</label><input id="it_qty_${it.id}" type="number" min="1" value="${it.quantity||1}" ${disS}></div>
       <div style="grid-column:span 2"><label>🔵 Link design ${it.design_link?`<span data-u="${esc(it.design_link)}" onclick="openImg(this.dataset.u)" style="cursor:pointer;color:#2563eb" title="Xem ảnh">· 🖼️ xem ảnh</span>`:""}</label><input id="it_design_${it.id}" value="${esc(it.design_link||"")}" ${disS}></div>
+      <div style="grid-column:span 2"><label>🔵 Link sản phẩm</label><input id="it_listing_${it.id}" value="${esc(it.listing_link||"")}" ${disS}></div>
+      <div><label>🔵 Order Design</label><input id="it_odesign_${it.id}" value="${esc(it.order_design_code||"")}" ${disS}></div>
       <div><label>🔵 Confirm design</label><select id="it_conf_${it.id}" ${disS}><option value="0" ${(!it.confirm_design&&!it.needs_fix&&!it.factory_design)?"selected":""}>Chưa</option><option value="1" ${it.confirm_design?"selected":""}>✓ Done</option><option value="2" ${it.needs_fix?"selected":""}>Need Fix</option><option value="3" ${it.factory_design?"selected":""}>🏭 Xưởng design</option></select></div>
       <div><label>🔵 Deadline ship (US)</label><input id="it_dl_${it.id}" type="date" value="${it.deadline_ship||""}" ${disS}></div>
+      <div style="grid-column:span 2"><label>🔵 Note</label><input id="it_note_${it.id}" value="${esc(it.note||"")}" ${disS}></div>
     </div>
     ${ce?`<button class="btn btn-sm mt" onclick="saveItemSeller('${it.id}')">💾 Lưu phần Seller</button>`:""}
     <hr style="border:none;border-top:1px dashed var(--border);margin:12px 0">
@@ -1123,7 +1127,6 @@ function itemCard(o, it, i, ce, cf){
       <div><label>🟢 Ngày đẩy đơn</label><input id="it_push_${it.id}" type="date" value="${it.pushed_at||""}" ${disF}></div>
       <div><label>🟢 Chi phí</label><input id="it_cost_${it.id}" type="number" step="0.01" value="${it.fulfillment_cost??""}" ${disF}></div>
       <div><label>🟢 Tiền tệ</label><select id="it_cur_${it.id}" ${disF}><option ${it.cost_currency==="USD"?"selected":""}>USD</option><option ${it.cost_currency==="VND"?"selected":""}>VND</option></select></div>
-      <div style="grid-column:span 2"><label>🟢 Note</label><input id="it_note_${it.id}" value="${esc(it.note||"")}" ${disF}></div>
     </div>
     ${cf?`<button class="btn btn-p btn-sm mt" onclick="saveItemFFM('${it.id}')">💾 Lưu phần FFM</button>`:""}
   </div>`;
@@ -1162,10 +1165,13 @@ async function saveItemSeller(id){
     color: $(`#it_color_${id}`).value.trim() || null,
     quantity: Number($(`#it_qty_${id}`).value)||1,
     design_link: $(`#it_design_${id}`).value.trim() || null,
+    listing_link: $(`#it_listing_${id}`).value.trim() || null,
+    order_design_code: $(`#it_odesign_${id}`).value.trim() || null,
     confirm_design: $(`#it_conf_${id}`).value==="1",
     needs_fix: $(`#it_conf_${id}`).value==="2",
     factory_design: $(`#it_conf_${id}`).value==="3",
     deadline_ship: $(`#it_dl_${id}`).value || null,
+    note: $(`#it_note_${id}`).value.trim() || null,
   };
   const { error } = await db.from("order_items").update(patch).eq("id", id);
   if(error) return fail(error);
@@ -1181,7 +1187,6 @@ async function saveItemFFM(id){
     pushed_at: $(`#it_push_${id}`).value || null,
     fulfillment_cost: $(`#it_cost_${id}`).value===""? null : Number($(`#it_cost_${id}`).value),
     cost_currency: $(`#it_cur_${id}`).value,
-    note: $(`#it_note_${id}`).value.trim() || null,
   };
   const { error } = await db.from("order_items").update(patch).eq("id", id);
   if(error) return fail(error);
@@ -1190,13 +1195,13 @@ async function saveItemFFM(id){
 async function addItem(orderId){
   const { data, error } = await db.from("order_items").insert({ order_id: orderId, quantity: 1 }).select().single();
   if(error) return fail(error);
-  S.items.push(data); buildRows(); openOrder(orderId);
+  S.items.push(data); buildRows(); openOrder(orderId, true);
 }
 async function delItem(id, orderId){
   if(!confirm("Xoá sản phẩm này?")) return;
   const { error } = await db.from("order_items").delete().eq("id", id);
   if(error) return fail(error);
-  S.items = S.items.filter(x=>x.id!==id); buildRows(); openOrder(orderId); toast("Đã xoá.");
+  S.items = S.items.filter(x=>x.id!==id); buildRows(); openOrder(orderId, true); toast("Đã xoá.");
 }
 /* Care hộ (docx 6.4): tự nhận quyền sửa TẠM 24h trên đơn đồng nghiệp — có ghi nhật ký */
 async function claimCare(orderId){
