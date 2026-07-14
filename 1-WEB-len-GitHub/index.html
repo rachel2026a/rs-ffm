@@ -206,7 +206,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.41</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RSA FFM</b><span>Fulfillment POD · v3.42</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -249,7 +249,7 @@ const STATUS_BADGE = { new:"b-gray", waiting_design:"b-yellow", design_ok:"b-blu
   ordered:"b-purple", in_production:"b-purple", has_tracking:"b-blue",
   synced:"b-blue", delivered:"b-green", issue:"b-red", cancelled:"b-gray" };
 const ROLE_VI = { seller:"Seller", ffm:"FFM", admin:"Admin (SD)" };
-const SCOPE_VI = { none:"Không", own:"Của mình", all:"Tất cả" };
+const SCOPE_VI = { none:"Không", own:"Của mình", team:"Nhóm", all:"Tất cả" };
 
 /* ---------------- helpers ---------------- */
 const $ = (s)=>document.querySelector(s);
@@ -959,6 +959,7 @@ function canEditOrder(o){
   if(isAdmin()) return true;
   if(S.careGrants && S.careGrants.has(o.id)) return true;   /* care hộ 24h */
   if(S.me.edit_scope==="all") return true;
+  if(S.me.edit_scope==="team"){ const sp=S.profiles.find(x=>x.id===o.seller_id); return !!(sp&&S.me.team&&sp.team===S.me.team); }
   if(S.me.edit_scope==="own") return o.seller_id===S.me.id;
   return false;
 }
@@ -2292,7 +2293,8 @@ function renderUsers(){
   const labelCount = {};
   for(const o of S.orders){ if(!o.seller_name_import) continue; if(!(o.seller_name_import in labelCount)) labelCount[o.seller_name_import]=0; if(!o.seller_id) labelCount[o.seller_name_import]++; }
   const labels = Object.keys(labelCount).sort((a,b)=>labelCount[b]-labelCount[a] || a.localeCompare(b));
-  const scopeSel = (id,k,v)=>`<select id="${id}_${k}">${["none","own","all"].map(s=>`<option value="${s}" ${v===s?"selected":""}>${SCOPE_VI[s]}</option>`).join("")}</select>`;
+  const scopeSel = (id,k,v)=>`<select id="${id}_${k}">${["none","own","team","all"].map(s=>`<option value="${s}" ${v===s?"selected":""}>${SCOPE_VI[s]}</option>`).join("")}</select>`;
+  const teamInp = (id,v)=>`<input id="${id}_team" value="${esc(v||"")}" style="width:64px" placeholder="A/B…" title="Nhóm (để trống = không nhóm). Cần khi Xem=Nhóm.">`;
   const roleSel = (id,v)=>`<select id="${id}_role">${["seller","ffm","admin"].map(r=>`<option value="${r}" ${v===r?"selected":""}>${ROLE_VI[r]}</option>`).join("")}</select>`;
   const labelSel = (id,v)=>`<select id="${id}_label"><option value="">— không gán —</option>${labels.map(l=>`<option value="${esc(l)}" ${v===l?"selected":""}>${esc(l)}${labelCount[l]?` · ${labelCount[l]} đơn`:" · (0)"}</option>`).join("")}</select>`;
 
@@ -2300,29 +2302,31 @@ function renderUsers(){
   <h1>Phân quyền</h1><p class="sub">Duyệt người dùng · gán vai trò + 3 phạm vi (Xem/Sửa/Xoá độc lập) · gán tên seller cũ để nhận lại đơn seed.<br>
   Lưu ý: bảo mật (RLS, chặn seller sửa cột FFM, nhật ký) do <b>database enforce</b>, không phụ thuộc giao diện.</p>
   <div class="card mb"><h3>⏳ Chờ phê duyệt (${pend.length})</h3>
-  ${pend.length?`<div class="tw"><table><tr><th>Họ tên</th><th>Email</th><th>Vai trò</th><th>Xem</th><th>Sửa</th><th>Xoá</th><th>Seller cũ (nhận đơn)</th><th></th></tr>
+  ${pend.length?`<div class="tw"><table><tr><th>Họ tên</th><th>Email</th><th>Vai trò</th><th>Nhóm</th><th>Xem</th><th>Sửa</th><th>Xoá</th><th>Seller cũ (nhận đơn)</th><th></th></tr>
   ${pend.map(p=>`<tr><td><b>${esc(p.full_name)}</b></td><td class="small">${esc(p.email||"")}</td>
   <td>${roleSel("u"+p.id.slice(0,8), p.role)}</td>
+  <td>${teamInp("u"+p.id.slice(0,8), p.team)}</td>
   <td>${scopeSel("u"+p.id.slice(0,8),"v",p.view_scope)}</td><td>${scopeSel("u"+p.id.slice(0,8),"e",p.edit_scope)}</td><td>${scopeSel("u"+p.id.slice(0,8),"d",p.delete_scope)}</td>
   <td>${labelSel("u"+p.id.slice(0,8), p.seller_label)}</td>
   <td><button class="btn btn-p btn-sm" onclick="approveUser('${p.id}')">✔ Duyệt</button></td></tr>`).join("")}</table></div>`
   :`<p class="muted">Không có đăng ký nào chờ duyệt.</p>`}</div>
   <div class="card"><h3>👥 Người dùng đã duyệt (${ok.length})</h3>
-  <div class="tw"><table><tr><th>Họ tên</th><th>Email</th><th>Vai trò</th><th>Xem</th><th>Sửa</th><th>Xoá</th><th>Seller cũ</th><th>Trạng thái</th><th></th></tr>
+  <div class="tw"><table><tr><th>Họ tên</th><th>Email</th><th>Vai trò</th><th>Nhóm</th><th>Xem</th><th>Sửa</th><th>Xoá</th><th>Seller cũ</th><th>Trạng thái</th><th></th></tr>
   ${ok.map(p=>`<tr><td><input id="u${p.id.slice(0,8)}_name" value="${esc(p.full_name||'')}" style="width:130px" title="Sửa tên hiển thị">${p.id===S.me.id?' <span class="badge b-blue">bạn</span>':""}</td><td class="small">${esc(p.email||"")}</td>
   <td>${roleSel("u"+p.id.slice(0,8), p.role)}</td>
+  <td>${teamInp("u"+p.id.slice(0,8), p.team)}</td>
   <td>${scopeSel("u"+p.id.slice(0,8),"v",p.view_scope)}</td><td>${scopeSel("u"+p.id.slice(0,8),"e",p.edit_scope)}</td><td>${scopeSel("u"+p.id.slice(0,8),"d",p.delete_scope)}</td>
   <td>${labelSel("u"+p.id.slice(0,8), p.seller_label)}</td>
   <td>${p.active?'<span class="badge b-green">Hoạt động</span>':'<span class="badge b-red">Đã khoá</span>'}</td>
   <td class="nowrap"><button class="btn btn-sm" onclick="saveUser('${p.id}')" title="Lưu (tên + quyền)">💾</button>
   ${p.id!==S.me.id?`<button class="btn btn-sm ${p.active?"btn-danger":""}" onclick="lockUser('${p.id}',${p.active?"false":"true"})" title="${p.active?"Khoá tạm":"Mở khoá"}">${p.active?"🔒":"🔓"}</button>
   <button class="btn btn-sm btn-danger" onclick="delUser('${p.id}')" title="Xoá hẳn">🗑️</button>`:""}</td></tr>`).join("")}</table></div>
-  <p class="small muted mt">Nguyên tắc: <b>xem-toàn-bộ ≠ sửa-toàn-bộ</b>. Trưởng nhóm seller: Xem = Tất cả, Sửa = Của mình. FFM (Ngọc): Xem/Sửa = Tất cả.</p></div>`;
+  <p class="small muted mt">Nguyên tắc: <b>xem-toàn-bộ ≠ sửa-toàn-bộ</b>. Trưởng nhóm seller: Xem = Tất cả, Sửa = Của mình. FFM (Ngọc): Xem/Sửa = Tất cả.<br><b>Tách nhóm:</b> điền <b>Nhóm</b> (vd A, B) rồi đặt <b>Xem = Nhóm</b> → seller chỉ thấy đơn của người cùng nhóm; A và B không thấy nhau. FFM/Admin để Xem = Tất cả (thấy hết).</p></div>`;
 }
 function readUserForm(id){
   const k = "u"+id.slice(0,8);
   const f = { role:$(`#${k}_role`).value, view_scope:$(`#${k}_v`).value, edit_scope:$(`#${k}_e`).value,
-    delete_scope:$(`#${k}_d`).value, seller_label:$(`#${k}_label`).value||null };
+    delete_scope:$(`#${k}_d`).value, seller_label:$(`#${k}_label`).value||null, team:($(`#${k}_team`)?$(`#${k}_team`).value.trim()||null:null) };
   const nm = $(`#${k}_name`); if(nm && nm.value.trim()) f.full_name = nm.value.trim();
   return f;
 }
