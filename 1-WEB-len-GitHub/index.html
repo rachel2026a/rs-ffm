@@ -211,7 +211,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.46</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.47</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -1037,12 +1037,12 @@ const FORM_GUESS = [
   [/order\s*id|order_?id|order\s*number|^id$/, "order_id"],
   [/tracking\s*status/, "tracking_status"], [/tracking|\btrack\b/, "tracking"], [/carrier/, "carrier"],
   [/shipping\s*label|label/, "label_link"],
-  [/first\s*name/, "customer_name"], [/last\s*name/, ""],
-  [/shipping\s*name|recipient|full\s*name|customer\s*name|^name$|\bname\b/, "customer_name"],
-  [/phone|telephone|sđt|điện thoại/, "customer_phone"], [/address/, "customer_address"],
-  [/city|state|region|province|zip|post\s*code|postcode|country|zipcode/, ""],
   [/product'?s?\s*type|product\s*type/, "product_type"],
   [/product'?s?\s*name|product\s*name|title|tên sản phẩm|\bproduct\b/, "product_name"],
+  [/first\s*name/, "customer_name"], [/last\s*name/, ""],
+  [/shipping\s*name|recipient|full\s*name|customer\s*name|^name$/, "customer_name"],
+  [/phone|telephone|sđt|điện thoại/, "customer_phone"], [/address/, "customer_address"],
+  [/city|state|region|province|zip|post\s*code|postcode|country|zipcode/, ""],
   [/order\s*design/, "order_design_code"], [/design/, "design_link"], [/mockup|mock up|\bimage\b|ảnh/, ""],
   [/\bsku\b|sku/, "sku"], [/size|kích cỡ/, "size"], [/colou?r|màu/, "color"],
   [/quantity|\bqty\b|số lượng/, "quantity"], [/dimension|kích thước/, "dimension"],
@@ -2246,7 +2246,7 @@ function renderCatalog(){
     <td class="center">${f.production_sla_days??""}</td><td class="center">${f.ship_sla_days??""}</td>
     <td>${f.website?`<a href="${esc(f.website)}" target="_blank" class="clip" style="max-width:160px">${esc(f.website)}</a>`:""}</td>
     <td class="small muted">${esc(f.notes||"")}</td>
-    ${cf?`<td class="nowrap"><button class="btn btn-sm" onclick="catForm('${f.id}')">✎</button></td>`:""}</tr>`).join("")}</table></div></div>`;
+    ${cf?`<td class="nowrap"><button class="btn btn-sm" onclick="catForm('${f.id}')" title="Sửa">✎</button> <button class="btn btn-sm" onclick="mergeFactory('${f.id}')" title="Gộp vào xưởng khác">⇄</button> <button class="btn btn-sm btn-danger" onclick="delFactory('${f.id}')" title="Xoá xưởng rác">🗑</button></td>`:""}</tr>`).join("")}</table></div></div>`;
   }
   if(catTab==="templates"){
     B.innerHTML = `<div class="card"><input id="tq" placeholder="🔍 Tìm template..." class="mb" style="width:280px">
@@ -2296,6 +2296,33 @@ function renderCatalog(){
       <td class="nowrap"><button class="btn btn-sm" onclick="formUpload('${f.id}')">⇧ Tải form</button>${ff?` <button class="btn btn-sm btn-danger" onclick="delFactoryForm('${f.id}')">🗑</button>`:""}</td></tr>`;
     }).join("")}</table></div></div>`;
   }
+}
+async function delFactory(id){
+  const f=maps.factory[id]; if(!f) return;
+  const used = S.items.some(it=>it.factory_id===id) || S.templates.some(t=>t.factory_id===id) || S.factAccs.some(a=>a.factory_id===id);
+  if(used) return toast(`Xưởng "${f.name}" đang có đơn/template/TK xưởng — dùng ⇄ Gộp vào xưởng đúng thay vì xoá.`, true);
+  if(!confirm(`Xoá hẳn xưởng "${f.name}"? Chỉ nên xoá xưởng rác/nhập nhầm, chưa dùng.`)) return;
+  const { error } = await db.from("factories").delete().eq("id", id);
+  if(error) return fail(error);
+  await reloadData(); toast("Đã xoá xưởng.");
+}
+function mergeFactory(id){
+  const f=maps.factory[id]; if(!f) return;
+  const others=S.factories.filter(x=>x.id!==id).sort((a,b)=>a.name.localeCompare(b.name));
+  if(!others.length) return toast("Chưa có xưởng khác để gộp.",true);
+  openModal(`<div class="spread mb"><h2>Gộp xưởng "${esc(f.name)}"</h2><button class="btn btn-sm" onclick="closeModal()">✕</button></div>
+    <p class="small muted">Chuyển TẤT CẢ đơn / template / TK xưởng / topup / hoàn tiền từ <b>${esc(f.name)}</b> sang xưởng đích, rồi xoá <b>${esc(f.name)}</b>. Dùng khi 2 xưởng bị trùng (vd Nghệ Tính / NgheTinh). Không hoàn tác được.</p>
+    <label>Gộp "${esc(f.name)}" vào xưởng đích:</label>
+    <select id="mergeTo" style="width:100%;margin-top:4px">${others.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join("")}</select>
+    <div class="flex mt"><button class="btn btn-p" onclick="doMergeFactory('${id}')">⇄ Gộp & xoá</button><button class="btn" onclick="closeModal()">Huỷ</button></div>`);
+}
+async function doMergeFactory(src){
+  const sel=$("#mergeTo"); const dst=sel?sel.value:""; if(!dst) return;
+  const sn=maps.factory[src]?.name||"?", dn=maps.factory[dst]?.name||"?";
+  if(!confirm(`Gộp "${sn}" → "${dn}"? Mọi đơn/dữ liệu của "${sn}" sẽ chuyển sang "${dn}" và xoá "${sn}". Không hoàn tác.`)) return;
+  const { error } = await db.rpc("merge_factory",{ p_src:src, p_dst:dst });
+  if(error) return fail(error);
+  closeModal(); await reloadData(); toast(`Đã gộp "${sn}" vào "${dn}".`);
 }
 async function showSecret(accId){
   const btn = document.getElementById("pw_"+accId);
