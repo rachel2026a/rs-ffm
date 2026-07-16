@@ -86,11 +86,10 @@ tr:hover td{background:var(--panel2)}
 #nav{flex:1;overflow-y:auto;padding:8px}
 .orow{cursor:pointer}
 .orow:hover td{background:#e8f0fb}
-.orow.grpa td{background:#eaf3ff}
-.orow.grpb td{background:#eafaf0}
-.orow.grpa:hover td,.orow.grpb:hover td{background:#dcebff}
-.orow.grpa td:first-child{box-shadow:inset 3px 0 0 #3b82f6}
-.orow.grpb td:first-child{box-shadow:inset 3px 0 0 #22c55e}
+.orow.grp td:first-child{border-left:2px solid #ef4444}
+.orow.grp td:last-child{border-right:2px solid #ef4444}
+.orow.grp-top td{border-top:2px solid #ef4444}
+.orow.grp-bot td{border-bottom:2px solid #ef4444}
 /* tô nhóm cột cho dễ nhìn */
 .oc-cust{background:#f5faff}
 .oc-prod,.oc-sku,.oc-link,.oc-size,.oc-color,.oc-sl,.oc-ptype,.oc-dim{background:#f4fdf7}
@@ -211,7 +210,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.47</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.48</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -885,9 +884,10 @@ function renderOrders(){
   const pages = Math.max(1, Math.ceil(rows.length / S.perPage));
   if(S.page > pages) S.page = 1;
   const pageRows = rows.slice((S.page-1)*S.perPage, S.page*S.perPage);
-  /* Tô màu luân phiên các đơn nhiều pcs để nhìn ra cùng 1 đơn */
-  const _grpTint={}; let _lastOid=null,_gi=-1;
-  pageRows.forEach(r=>{ if(r.o.id!==_lastOid){ _lastOid=r.o.id; if(r.multi)_gi++; } if(r.multi)_grpTint[r.o.id]=_gi%2; });
+  /* Viền đỏ bao quanh cả nhóm đơn nhiều pcs (hàng liền kề cùng order) */
+  const _grpCls=pageRows.map((r,i)=>{ if(!r.multi) return ""; const pv=pageRows[i-1], nx=pageRows[i+1];
+    const top=!pv||pv.o.id!==r.o.id, bot=!nx||nx.o.id!==r.o.id;
+    return "grp"+(top?" grp-top":"")+(bot?" grp-bot":""); });
   const f = S.filters;
 
   $("#view").innerHTML = `
@@ -928,10 +928,10 @@ function renderOrders(){
   <div class="tw"><table class="otbl">
     <tr class="thgroup"><th></th>${ocGroupHeader()}</tr>
     <tr><th><input type="checkbox" title="Chọn cả trang" onclick="selAll(this.checked)"></th>${ocSubHeader()}</tr>
-    ${pageRows.map(r=>{
+    ${pageRows.map((r,_ri)=>{
       const { o, it } = r; const sla = slaInfo(it); const c = it?readyChecks(o,it):null;
       const em=S.editMode, dS=(canEditOrder(o)&&S.me.role!=="ffm")?"":"disabled", dF=isFFM()?"":"disabled", dT=(canEditOrder(o)||isFFM())?"":"disabled", stO=x=>Object.entries(STATUS_VI).map(([k,v])=>`<option value="${k}" ${x===k?"selected":""}>${v}</option>`).join("");
-      return `<tr onclick="rowOpen(event,'${o.id}','${it?it.id:''}')" class="orow${r.multi?(_grpTint[o.id]===0?' grpa':' grpb'):''}">
+      return `<tr onclick="rowOpen(event,'${o.id}','${it?it.id:''}')" class="orow${_grpCls[_ri]?(' '+_grpCls[_ri]):''}">
       <td onclick="event.stopPropagation()" style="text-align:center">${it?`<input type="checkbox" class="rsel" data-id="${it.id}" ${S.sel&&S.sel.has(it.id)?"checked":""} onclick="toggleSel('${it.id}',this.checked)">`:""}</td>
       <td class="oc-date nowrap">${em&&it?`<input type="date" id="g_order_date_${it.id}" value="${o.order_date||''}" onchange="gridSave('${it.id}')" ${dS}>`:fmtD(o.order_date)}</td>
       <td class="oc-oid nowrap"><a href="#" onclick="openOrder('${o.id}');return false">${esc(o.platform_order_id)}</a> <span class="cpy" data-copy="${esc(o.platform_order_id)}" title="Copy Order ID" style="cursor:pointer">📋</span> <a href="#" onclick="openOrder('${o.id}');return false" title="Mở & sửa/cập nhật đơn" style="text-decoration:none">✏️</a>${r.multi?' <span class="badge b-purple" title="Đơn nhiều sản phẩm">⧉</span>':""}${S.dupOrders&&S.dupOrders.has(o.id)?' <span class="badge b-yellow" title="Trùng tên/địa chỉ khách với đơn khác">👥</span>':""}</td>
@@ -2320,9 +2320,15 @@ async function doMergeFactory(src){
   const sel=$("#mergeTo"); const dst=sel?sel.value:""; if(!dst) return;
   const sn=maps.factory[src]?.name||"?", dn=maps.factory[dst]?.name||"?";
   if(!confirm(`Gộp "${sn}" → "${dn}"? Mọi đơn/dữ liệu của "${sn}" sẽ chuyển sang "${dn}" và xoá "${sn}". Không hoàn tác.`)) return;
-  const { error } = await db.rpc("merge_factory",{ p_src:src, p_dst:dst });
+  /* Chuyển mọi tham chiếu từ xưởng nguồn sang xưởng đích rồi mới xoá (không cần SQL). */
+  for(const tbl of ["order_items","templates","factory_accounts","topups","refunds"]){
+    const { error } = await db.from(tbl).update({ factory_id:dst }).eq("factory_id", src);
+    if(error && !/does not exist|relation|schema cache/i.test(error.message||"")) return fail(error);
+  }
+  await db.from("factory_forms").delete().eq("factory_id", src);
+  const { error } = await db.from("factories").delete().eq("id", src);
   if(error) return fail(error);
-  closeModal(); await reloadData(); toast(`Đã gộp "${sn}" vào "${dn}".`);
+  closeModal(); await reloadData(); toast(`Đã gộp "${sn}" vào "${dn}". Chuyển hết đơn sang "${dn}".`);
 }
 async function showSecret(accId){
   const btn = document.getElementById("pw_"+accId);
@@ -2368,6 +2374,7 @@ function catForm(id){
   <button class="btn btn-sm" onclick="closeModal()">✕</button></div>${F}
   <div class="flex mt"><button class="btn btn-p" onclick="catSave('${id||""}')">Lưu</button>
   ${id?`<button class="btn btn-danger" onclick="catDel('${id}')">🗑 Xoá</button>`:""}
+  ${id&&catTab==="factories"?`<button class="btn" onclick="closeModal();mergeFactory('${id}')" title="Gộp xưởng này vào xưởng khác">⇄ Gộp vào xưởng khác</button>`:""}
   <button class="btn" onclick="closeModal()">Hủy</button></div>`);
 }
 async function catSave(id){
@@ -2424,7 +2431,11 @@ async function mergeSellAcc(fromId){
 async function catDel(id){
   if(!confirm("Xoá mục này? (Nếu đang được đơn hàng dùng sẽ không xoá được)")) return;
   const { error } = await db.from(catTab).delete().eq("id", id);
-  if(error) return fail(error);
+  if(error){
+    if(catTab==="factories" && /foreign key|violates|constraint/i.test(error.message||""))
+      return toast(`Xưởng này đang được đơn/template dùng → không xoá trực tiếp được. Bấm "⇄ Gộp vào xưởng khác" để chuyển đơn sang xưởng đúng (sẽ tự xoá xưởng này).`, true);
+    return fail(error);
+  }
   closeModal(); toast("Đã xoá.");
   if(catTab==="factories") S.factories = S.factories.filter(x=>x.id!==id);
   if(catTab==="templates") S.templates = S.templates.filter(x=>x.id!==id);
