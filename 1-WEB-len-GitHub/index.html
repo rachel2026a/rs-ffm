@@ -86,6 +86,11 @@ tr:hover td{background:var(--panel2)}
 #nav{flex:1;overflow-y:auto;padding:8px}
 .orow{cursor:pointer}
 .orow:hover td{background:#e8f0fb}
+.orow.grpa td{background:#eaf3ff}
+.orow.grpb td{background:#eafaf0}
+.orow.grpa:hover td,.orow.grpb:hover td{background:#dcebff}
+.orow.grpa td:first-child{box-shadow:inset 3px 0 0 #3b82f6}
+.orow.grpb td:first-child{box-shadow:inset 3px 0 0 #22c55e}
 /* tô nhóm cột cho dễ nhìn */
 .oc-cust{background:#f5faff}
 .oc-prod,.oc-sku,.oc-link,.oc-size,.oc-color,.oc-sl,.oc-ptype,.oc-dim{background:#f4fdf7}
@@ -206,7 +211,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.44</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.46</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -397,7 +402,7 @@ function showReloadChip(){
 }
 
 async function loadAll(){
-  const [profiles, factories, templates, sellAccs, factAccs, orders, items, balances, grants] = await Promise.all([
+  const [profiles, factories, templates, sellAccs, factAccs, orders, items, balances, grants, factoryForms] = await Promise.all([
     fetchAll("profiles",{select:"*"}).catch(()=>[]),
     fetchAll("factories",{order:"name",asc:true}),
     fetchAll("templates",{order:"code",asc:true}),
@@ -408,10 +413,12 @@ async function loadAll(){
     db.from("v_factory_balance").select("*").then(r=>{ if(r.error) throw r.error; return r.data; }).catch(()=>[]),
     db.from("care_grants").select("order_id").eq("grantee", S.user.id)
       .gt("expires_at", new Date().toISOString()).then(r=>r.data||[]).catch(()=>[]),
+    fetchAll("factory_forms").catch(()=>[]),
   ]);
   S.careGrants = new Set(grants.map(g=>g.order_id));
   S.profiles=profiles; S.factories=factories; S.templates=templates;
   S.sellAccs=sellAccs; S.factAccs=factAccs; S.orders=orders; S.items=items; S.balances=balances;
+  S.factoryForms={}; for(const ff of (factoryForms||[])){ S.factoryForms[ff.factory_id||"_generic"]=ff; }
   maps.profile = Object.fromEntries(profiles.map(p=>[p.id,p]));
   maps.factory = Object.fromEntries(factories.map(f=>[f.id,f]));
   maps.template = Object.fromEntries(templates.map(t=>[t.id,t]));
@@ -442,6 +449,13 @@ function buildRows(){
   for(const ids of Object.values(custMap)){
     if(ids.length > 1){ ids.forEach(id=>S.dupOrders.add(id)); S.dupGroups.push(ids); }
   }
+  /* Cả đơn đủ điều kiện đẩy: MỌI pcs đều có Label + Design + Tracking (gate đơn nhiều pcs) */
+  S.orderAllReady = new Set();
+  for(const o of S.orders){
+    if(o.archived_at) continue;
+    const its = byOrder[o.id]; if(!its || !its.length) continue;
+    if(its.every(x=>{ const c=readyChecks(o,x); return c.label && c.design && c.tracking; })) S.orderAllReady.add(o.id);
+  }
 }
 
 function sellerName(o){
@@ -456,10 +470,10 @@ function readyChecks(o, it){
 }
 function isReadyToPush(o, it){
   if(!it) return false;
-  const c = readyChecks(o,it);
-  return c.label && c.design && c.tracking && !it.factory_order_id
-    && !it.pushed_at
-    && !["ordered","in_production","synced","delivered","cancelled"].includes(it.item_status);
+  if(it.factory_order_id || it.pushed_at) return false;
+  if(["ordered","in_production","synced","delivered","cancelled"].includes(it.item_status)) return false;
+  /* Đơn nhiều pcs: chỉ đẩy khi MỌI pcs cùng đơn đủ Label + Design + Tracking */
+  return !!(S.orderAllReady && S.orderAllReady.has(o.id));
 }
 /* SLA: đếm theo GIỜ tới hạn (deadline = 23:59 giờ US Eastern) — góp ý 7.1 */
 function slaInfo(it){
@@ -871,6 +885,9 @@ function renderOrders(){
   const pages = Math.max(1, Math.ceil(rows.length / S.perPage));
   if(S.page > pages) S.page = 1;
   const pageRows = rows.slice((S.page-1)*S.perPage, S.page*S.perPage);
+  /* Tô màu luân phiên các đơn nhiều pcs để nhìn ra cùng 1 đơn */
+  const _grpTint={}; let _lastOid=null,_gi=-1;
+  pageRows.forEach(r=>{ if(r.o.id!==_lastOid){ _lastOid=r.o.id; if(r.multi)_gi++; } if(r.multi)_grpTint[r.o.id]=_gi%2; });
   const f = S.filters;
 
   $("#view").innerHTML = `
@@ -914,7 +931,7 @@ function renderOrders(){
     ${pageRows.map(r=>{
       const { o, it } = r; const sla = slaInfo(it); const c = it?readyChecks(o,it):null;
       const em=S.editMode, dS=(canEditOrder(o)&&S.me.role!=="ffm")?"":"disabled", dF=isFFM()?"":"disabled", dT=(canEditOrder(o)||isFFM())?"":"disabled", stO=x=>Object.entries(STATUS_VI).map(([k,v])=>`<option value="${k}" ${x===k?"selected":""}>${v}</option>`).join("");
-      return `<tr onclick="rowOpen(event,'${o.id}','${it?it.id:''}')" class="orow">
+      return `<tr onclick="rowOpen(event,'${o.id}','${it?it.id:''}')" class="orow${r.multi?(_grpTint[o.id]===0?' grpa':' grpb'):''}">
       <td onclick="event.stopPropagation()" style="text-align:center">${it?`<input type="checkbox" class="rsel" data-id="${it.id}" ${S.sel&&S.sel.has(it.id)?"checked":""} onclick="toggleSel('${it.id}',this.checked)">`:""}</td>
       <td class="oc-date nowrap">${em&&it?`<input type="date" id="g_order_date_${it.id}" value="${o.order_date||''}" onchange="gridSave('${it.id}')" ${dS}>`:fmtD(o.order_date)}</td>
       <td class="oc-oid nowrap"><a href="#" onclick="openOrder('${o.id}');return false">${esc(o.platform_order_id)}</a> <span class="cpy" data-copy="${esc(o.platform_order_id)}" title="Copy Order ID" style="cursor:pointer">📋</span> <a href="#" onclick="openOrder('${o.id}');return false" title="Mở & sửa/cập nhật đơn" style="text-decoration:none">✏️</a>${r.multi?' <span class="badge b-purple" title="Đơn nhiều sản phẩm">⧉</span>':""}${S.dupOrders&&S.dupOrders.has(o.id)?' <span class="badge b-yellow" title="Trùng tên/địa chỉ khách với đơn khác">👥</span>':""}</td>
@@ -969,17 +986,143 @@ function renderOrders(){
   updateSelBar();
 }
 function exportOrdersCsv(){
-  const rows = filteredRows();
+  const rows = sortRows(filteredRows());   /* đúng thứ tự đang hiển thị */
+  const confTxt = it=> it ? (it.factory_design?"Xưởng design":it.needs_fix?"Need Fix":it.confirm_design?"Done":"") : "";
   csvDownload(`don-hang_${today()}.csv`,
-    ["Ngày","Order ID","Platform","TK bán","Seller","Nhóm","Khách","SĐT","Địa chỉ","Sản phẩm","Product Type","Size","Color","SL","Design","Confirm","Xưởng","Order FFM","Tracking","Trạng thái","Deadline","Chi phí","Cur","Note"],
-    rows.map(r=>{ const {o,it}=r; return [fmtD(o.order_date),o.platform_order_id,o.platform,
-      o.selling_account_id&&maps.sellAcc[o.selling_account_id]?.name||"",sellerName(o),teamOf(o),
-      o.customer_name||"",o.customer_contact||"",o.customer_address||"",
-      it?.product_title||itemLabel(it),it?.product_type||"",it?.size||"",it?.color||"",it?.quantity??"",
-      it?.design_link||"",it?.confirm_design?"x":"",it?.factory_id&&maps.factory[it.factory_id]?.name||"",
-      it?.factory_order_id||"",it?.tracking_number||o.tracking_number||"",it?STATUS_VI[it.item_status]:"",
-      fmtD(it?.deadline_ship),it?.fulfillment_cost??"",it?.cost_currency||"",o.seller_note||""]; }));
+    ["Ngày","Order ID","Platform","TK bán","Seller","Nhóm","Khách","SĐT","Địa chỉ","Sản phẩm","Product Type","Dimension","SKU","Link SP","Size","Color","SL","Link Design","Confirm","Order Design","Note SP","Xưởng","Order FFM","Tracking","Track status","Carrier","Ngày đẩy","Deadline","Chi phí","Tiền tệ","Link Label","Phí Label","Note đơn","Trạng thái"],
+    rows.map(r=>{ const {o,it}=r; return [
+      fmtD(o.order_date), o.platform_order_id, o.platform||"",
+      o.selling_account_id&&maps.sellAcc[o.selling_account_id]?.name||"", sellerName(o), teamOf(o),
+      o.customer_name||"", o.customer_contact||"", o.customer_address||"",
+      it?.product_title||itemLabel(it), it?.product_type||"", it?.dimension||"", it?.sku_phoi||"", it?.listing_link||"",
+      it?.size||"", it?.color||"", it?.quantity??"", it?.design_link||"", confTxt(it), it?.order_design_code||"", it?.note||"",
+      it?.factory_id&&maps.factory[it.factory_id]?.name||"", it?.factory_order_id||"",
+      it?.tracking_number||o.tracking_number||"", it?.tracking_status||"", it?.carrier||"",
+      fmtD(it?.pushed_at), fmtD(it?.deadline_ship), it?.fulfillment_cost??"", it?.cost_currency||"",
+      o.label_link||"", o.label_fee??"", o.seller_note||"", it?STATUS_VI[it.item_status]:"" ]; }));
   toast("Đã xuất "+rows.length+" dòng.");
+}
+
+/* ============ FORM EXPORT THEO XƯỞNG ============ */
+const FORM_FIELDS = [
+  {k:"",label:"— để trống —"},
+  {k:"order_id",label:"Order ID"},{k:"order_date",label:"Ngày order"},{k:"platform",label:"Platform (sàn)"},
+  {k:"selling_account",label:"TK bán"},{k:"seller",label:"Seller"},
+  {k:"customer_name",label:"Tên khách"},{k:"customer_phone",label:"SĐT khách"},{k:"customer_address",label:"Địa chỉ khách"},
+  {k:"product_name",label:"Tên sản phẩm"},{k:"product_type",label:"Product Type"},{k:"dimension",label:"Dimension"},
+  {k:"sku",label:"SKU"},{k:"listing_link",label:"Link SP"},{k:"size",label:"Size"},{k:"color",label:"Color"},{k:"quantity",label:"Số lượng"},
+  {k:"design_link",label:"Link Design"},{k:"order_design_code",label:"Order Design"},{k:"confirm",label:"Trạng thái Design"},
+  {k:"item_note",label:"Note SP"},{k:"seller_note",label:"Note đơn"},
+  {k:"factory_name",label:"Tên xưởng"},{k:"factory_order_id",label:"Order FFM"},
+  {k:"tracking",label:"Tracking"},{k:"tracking_status",label:"Track status"},{k:"carrier",label:"Carrier"},
+  {k:"pushed_at",label:"Ngày đẩy"},{k:"deadline_ship",label:"Deadline ship"},
+  {k:"cost",label:"Chi phí"},{k:"currency",label:"Tiền tệ"},{k:"label_link",label:"Link Label"},{k:"label_fee",label:"Phí Label"},
+];
+const FORM_GET = {
+  order_id:(o,it)=>o.platform_order_id, order_date:(o,it)=>fmtD(o.order_date), platform:(o,it)=>o.platform,
+  selling_account:(o,it)=>maps.sellAcc[o.selling_account_id]?.name, seller:(o,it)=>sellerName(o),
+  customer_name:(o,it)=>o.customer_name, customer_phone:(o,it)=>o.customer_contact, customer_address:(o,it)=>o.customer_address,
+  product_name:(o,it)=>it?.product_title||itemLabel(it), product_type:(o,it)=>it?.product_type, dimension:(o,it)=>it?.dimension,
+  sku:(o,it)=>it?.sku_phoi, listing_link:(o,it)=>it?.listing_link, size:(o,it)=>it?.size, color:(o,it)=>it?.color, quantity:(o,it)=>it?.quantity,
+  design_link:(o,it)=>it?.design_link, order_design_code:(o,it)=>it?.order_design_code,
+  confirm:(o,it)=>it?(it.factory_design?"Xưởng design":it.needs_fix?"Need Fix":it.confirm_design?"Done":""):"",
+  item_note:(o,it)=>it?.note, seller_note:(o,it)=>o.seller_note,
+  factory_name:(o,it)=>maps.factory[it?.factory_id]?.name, factory_order_id:(o,it)=>it?.factory_order_id,
+  tracking:(o,it)=>it?.tracking_number||o.tracking_number, tracking_status:(o,it)=>it?.tracking_status, carrier:(o,it)=>it?.carrier,
+  pushed_at:(o,it)=>fmtD(it?.pushed_at), deadline_ship:(o,it)=>fmtD(it?.deadline_ship),
+  cost:(o,it)=>it?.fulfillment_cost, currency:(o,it)=>it?.cost_currency, label_link:(o,it)=>o.label_link, label_fee:(o,it)=>o.label_fee,
+};
+function fieldVal(k,o,it){ const g=FORM_GET[k]; if(!g) return ""; const v=g(o,it); return v==null?"":String(v); }
+const FORM_GUESS = [
+  [/order\s*id|order_?id|order\s*number|^id$/, "order_id"],
+  [/tracking\s*status/, "tracking_status"], [/tracking|\btrack\b/, "tracking"], [/carrier/, "carrier"],
+  [/shipping\s*label|label/, "label_link"],
+  [/first\s*name/, "customer_name"], [/last\s*name/, ""],
+  [/shipping\s*name|recipient|full\s*name|customer\s*name|^name$|\bname\b/, "customer_name"],
+  [/phone|telephone|sđt|điện thoại/, "customer_phone"], [/address/, "customer_address"],
+  [/city|state|region|province|zip|post\s*code|postcode|country|zipcode/, ""],
+  [/product'?s?\s*type|product\s*type/, "product_type"],
+  [/product'?s?\s*name|product\s*name|title|tên sản phẩm|\bproduct\b/, "product_name"],
+  [/order\s*design/, "order_design_code"], [/design/, "design_link"], [/mockup|mock up|\bimage\b|ảnh/, ""],
+  [/\bsku\b|sku/, "sku"], [/size|kích cỡ/, "size"], [/colou?r|màu/, "color"],
+  [/quantity|\bqty\b|số lượng/, "quantity"], [/dimension|kích thước/, "dimension"],
+  [/\bdate\b|ngày|created/, "order_date"], [/cost|price|giá|\btotal\b/, "cost"],
+  [/note|notes|ghi chú/, "item_note"], [/seller/, "seller"],
+];
+function formGuess(h){ const t=String(h||"").trim().toLowerCase(); for(const [re,f] of FORM_GUESS){ if(re.test(t)) return f; } return ""; }
+function factoryFormFor(fid){ return (S.factoryForms&&(S.factoryForms[fid]||S.factoryForms._generic))||null; }
+
+function formUpload(fid){
+  if(typeof XLSX==="undefined") return toast("Chưa tải được thư viện Excel, thử lại sau vài giây.",true);
+  const inp=document.createElement("input"); inp.type="file"; inp.accept=".xlsx,.xls";
+  inp.onchange=e=>{ const f=e.target.files[0]; if(!f) return; const rd=new FileReader();
+    rd.onload=ev=>{ try{
+      const wb=XLSX.read(ev.target.result,{type:"array"});
+      const pick=(sn)=>{ const ws=wb.Sheets[sn]; const aoa=XLSX.utils.sheet_to_json(ws,{header:1,defval:""});
+        const headers=((aoa[0]||[]).map(x=>String(x||"").trim())).filter(x=>x);
+        if(!headers.length) return toast("Sheet này không có hàng tiêu đề.",true);
+        formReview(fid, headers, f.name); };
+      if(wb.SheetNames.length>1){
+        openModal(`<div class="spread mb"><h2>Chọn sheet chứa form</h2><button class="btn btn-sm" onclick="closeModal()">✕</button></div>
+          <p class="small muted">File có ${wb.SheetNames.length} sheet — chọn sheet là form cần dùng:</p>
+          <div class="flex" style="flex-wrap:wrap;gap:6px">${wb.SheetNames.map((sn,i)=>`<button class="btn" data-sn="${i}">${esc(sn)}</button>`).join("")}</div>`);
+        $$("#modalBg [data-sn]").forEach(b=>b.onclick=()=>pick(wb.SheetNames[+b.dataset.sn]));
+      } else pick(wb.SheetNames[0]);
+    }catch(err){ toast("Lỗi đọc file: "+(err&&err.message||err),true); } };
+    rd.readAsArrayBuffer(f); };
+  inp.click();
+}
+function formReview(fid, headers, fileName){
+  window.__formHeaders=headers; window.__formFid=fid; window.__formFile=fileName;
+  const fname = fid==="_generic"?"Form chung":(maps.factory[fid]?.name||"?");
+  const opt=(sel)=>FORM_FIELDS.map(f=>`<option value="${f.k}" ${f.k===sel?"selected":""}>${esc(f.label)}</option>`).join("");
+  const rows=headers.map((h,i)=>`<tr><td class="small">${esc(h)}</td><td><select id="fm_${i}" style="min-width:150px">${opt(formGuess(h))}</select></td></tr>`).join("");
+  openModal(`<div class="spread mb"><h2>Soát map cột — ${esc(fname)}</h2><button class="btn btn-sm" onclick="closeModal()">✕</button></div>
+    <p class="small muted">${headers.length} cột. Tool đã tự đoán nguồn dữ liệu cho mỗi cột — sửa lại nếu sai; cột nào tool không có dữ liệu để <b>"— để trống —"</b>.</p>
+    <div class="tw" style="max-height:50vh"><table><tr><th>Cột trong form xưởng</th><th>Lấy dữ liệu từ</th></tr>${rows}</table></div>
+    <div class="flex mt"><button class="btn btn-p" onclick="formSave()">💾 Lưu form</button><button class="btn" onclick="closeModal()">Huỷ</button></div>`);
+}
+function formSave(){
+  const headers=window.__formHeaders||[], fid=window.__formFid, fileName=window.__formFile;
+  const columns=headers.map((h,i)=>({ h, f:($("#fm_"+i)?$("#fm_"+i).value:"") }));
+  closeModal(); saveFactoryForm(fid, columns, fileName);
+}
+async function saveFactoryForm(fid, columns, fileName){
+  const payload={ columns, file_name:fileName||null, updated_at:new Date().toISOString(), updated_by:S.user.id };
+  let error;
+  if(fid==="_generic"){
+    const ex=S.factoryForms&&S.factoryForms._generic;
+    if(ex&&ex.id){ ({error}=await db.from("factory_forms").update(payload).eq("id",ex.id)); }
+    else { ({error}=await db.from("factory_forms").insert({...payload, factory_id:null})); }
+  } else {
+    ({error}=await db.from("factory_forms").upsert({...payload, factory_id:fid},{onConflict:"factory_id"}));
+  }
+  if(error) return fail(error);
+  await reloadData(); toast("Đã lưu form xưởng.");
+}
+async function delFactoryForm(fid){
+  const ex = fid==="_generic"?(S.factoryForms&&S.factoryForms._generic):(S.factoryForms&&S.factoryForms[fid]);
+  if(!ex||!ex.id) return;
+  if(!confirm("Xoá form này? Xưởng sẽ quay lại dùng Form chung.")) return;
+  const {error}=await db.from("factory_forms").delete().eq("id",ex.id);
+  if(error) return fail(error);
+  await reloadData(); toast("Đã xoá form.");
+}
+function exportFactoryForm(fid){
+  if(typeof XLSX==="undefined") return toast("Chưa tải được thư viện Excel.",true);
+  const form = factoryFormFor(fid);
+  if(!form || !form.columns || !form.columns.length)
+    return toast("Xưởng này chưa có form. Vào Danh mục → Form xưởng để tải form (hoặc tạo Form chung).", true);
+  const ids = $$(".pk_"+CSS.escape(fid)).filter(c=>c.checked).map(c=>c.value);
+  const rs = S.rows.filter(r=>r.it && ids.includes(r.it.id));
+  if(!rs.length) return toast("Chưa chọn dòng nào.", true);
+  const header = form.columns.map(c=>c.h);
+  const data = rs.map(r=>form.columns.map(c=>fieldVal(c.f, r.o, r.it)));
+  const ws = XLSX.utils.aoa_to_sheet([header, ...data]);
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Orders");
+  const fname = (maps.factory[fid]?.name || "xuong").replace(/[\\/:*?"<>|]/g,"_");
+  XLSX.writeFile(wb, `form_${fname}_${today()}.xlsx`);
+  toast(`Đã xuất form ${fname}: ${rs.length} dòng${factoryFormFor(fid)===S.factoryForms._generic?" (Form chung)":""}.`);
 }
 
 /* ================= CHI TIẾT ĐƠN (modal) ================= */
@@ -1928,6 +2071,7 @@ function renderPush(){
       <h3>🏭 ${esc(fname)} — ${rs.length} SP ${bal?`· số dư <b class="${Number(bal.balance_usd)<0?"sla-red":"sla-green"}">${fmtUSD(bal.balance_usd)}</b>`:""}</h3>
       <div class="flex">
         <button class="btn btn-sm" onclick="pushCsv('${fid}')">⇩ Xuất CSV batch</button>
+        ${fid!=="none"?`<button class="btn btn-sm" onclick="exportFactoryForm('${fid}')" title="Xuất .xlsx theo form của xưởng này">⇩ Form xưởng (.xlsx)</button>`:""}
         ${fid!=="none"?`<button class="btn btn-p btn-sm" onclick="markPushed('${fid}')">✔ Đánh dấu đã đẩy (chọn)</button>`:""}
       </div></div>
       <div class="tw" style="max-height:320px"><table>
@@ -2087,6 +2231,7 @@ let catTab = "factories";
 function renderCatalog(){
   let tabs = [["factories","🏭 Xưởng"],["templates","🎨 Template"],["selling_accounts","🛒 TK bán hàng"]];
   if(isFFM()) tabs.push(["factory_accounts","🔑 TK xưởng"]);
+  if(isFFM()) tabs.push(["forms","📄 Form xưởng"]);
   $("#view").innerHTML = `
   <div class="spread mb"><div><h1>Danh mục</h1><p class="sub">Nguồn auto-fill & dropdown — sửa 1 chỗ, cả hệ thống dùng chung</p></div>
   ${isFFM()?`<button class="btn btn-p" onclick="catForm()">＋ Thêm</button>`:""}</div>
@@ -2133,6 +2278,23 @@ function renderCatalog(){
     <td><button class="btn btn-sm" id="pw_${a.id}" onclick="showSecret('${a.id}')">👁 Hiện</button></td>
     <td><button class="btn btn-sm" onclick="catForm('${a.id}')">✎</button></td></tr>`).join("")
     || `<tr><td colspan="6" class="muted">Chưa có tài khoản xưởng nào. Bấm "＋ Thêm".</td></tr>`}</table></div></div>`;
+  }
+  if(catTab==="forms"){
+    const gen=S.factoryForms&&S.factoryForms._generic;
+    B.innerHTML=`<div class="card">
+    <p class="small muted mb">Tải file form Excel của từng xưởng → tool xuất đơn đúng form đó ở màn <b>Đẩy xưởng</b> (nút "Form xưởng"). Xưởng chưa có form riêng sẽ dùng <b>Form chung</b>. Khi tải lên sẽ có bước soát map cột.</p>
+    <div class="tw" style="max-height:65vh"><table>
+    <tr><th>Xưởng</th><th>Form</th><th>File đã tải</th><th></th></tr>
+    <tr><td><b>📄 Form chung</b> <span class="small muted">(mặc định)</span></td>
+      <td>${gen?`<span class="badge b-green">${gen.columns.length} cột</span>`:'<span class="badge b-gray">chưa có</span>'}</td>
+      <td class="small muted">${esc(gen?.file_name||"")}</td>
+      <td class="nowrap"><button class="btn btn-sm btn-p" onclick="formUpload('_generic')">⇧ Tải form</button>${gen?` <button class="btn btn-sm btn-danger" onclick="delFactoryForm('_generic')">🗑</button>`:""}</td></tr>
+    ${S.factories.map(f=>{ const ff=S.factoryForms&&S.factoryForms[f.id];
+      return `<tr><td><b>${esc(f.name)}</b></td>
+      <td>${ff?`<span class="badge b-green">${ff.columns.length} cột</span>`:'<span class="badge b-gray">dùng Form chung</span>'}</td>
+      <td class="small muted">${esc(ff?.file_name||"")}</td>
+      <td class="nowrap"><button class="btn btn-sm" onclick="formUpload('${f.id}')">⇧ Tải form</button>${ff?` <button class="btn btn-sm btn-danger" onclick="delFactoryForm('${f.id}')">🗑</button>`:""}</td></tr>`;
+    }).join("")}</table></div></div>`;
   }
 }
 async function showSecret(accId){
