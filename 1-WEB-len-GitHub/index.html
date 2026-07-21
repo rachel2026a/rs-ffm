@@ -210,7 +210,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.48</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.49</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -2876,7 +2876,22 @@ function renderProfile(){
       <button class="btn" onclick="$('#btnDark').click()">◐ Đổi giao diện sáng/tối</button>
       <button class="btn btn-danger" onclick="logout()">⎋ Đăng xuất</button>
     </div>
+  </div>
+  <div class="card mt" style="max-width:460px"><h3>🔑 Đổi mật khẩu</h3>
+    <label>Mật khẩu mới (≥6 ký tự)</label><input id="pfPw1" type="password" autocomplete="new-password" style="width:100%">
+    <label>Nhập lại mật khẩu mới</label><input id="pfPw2" type="password" autocomplete="new-password" style="width:100%">
+    <div class="flex mt"><button class="btn btn-p" onclick="changePassword()">🔑 Đổi mật khẩu</button></div>
+    <p class="small muted mt">Đổi xong, lần sau đăng nhập bằng mật khẩu mới. (Dùng được cả khi vào qua link reset.)</p>
   </div>`;
+}
+async function changePassword(){
+  const a=$("#pfPw1").value, b=$("#pfPw2").value;
+  if(!a || a.length<6) return toast("Mật khẩu mới tối thiểu 6 ký tự.", true);
+  if(a!==b) return toast("Hai ô mật khẩu chưa khớp.", true);
+  const { error } = await db.auth.updateUser({ password:a });
+  if(error) return fail(error);
+  $("#pfPw1").value=""; $("#pfPw2").value="";
+  toast("Đã đổi mật khẩu thành công. Lần sau đăng nhập bằng mật khẩu mới.");
 }
 async function saveProfile(){
   const name = $("#pfName").value.trim();
