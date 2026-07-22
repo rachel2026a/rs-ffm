@@ -210,7 +210,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.49</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.50</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -1618,8 +1618,10 @@ function applyPaste(){
   closeModal(); renderNew(); toast(added?`Đã thêm ${added} dòng.`:"Không có dòng hợp lệ (thiếu Order ID).", !added);
 }
 async function saveNewRows(){
+  if(window._savingNew) return;   /* chặn bấm Lưu 2 lần -> tránh tạo đơn trùng */
   const rows = NR.filter(r=>r.order_id.trim());
   if(!rows.length) return toast("Chưa có dòng nào có Order ID.", true);
+  window._savingNew = true;
   const groups = {};
   for(const r of rows) (groups[r.order_id.trim()] ||= []).push(r);
   let nOrders=0, nItems=0;
@@ -1628,7 +1630,7 @@ async function saveNewRows(){
       let order = S.orders.find(o=>o.platform==="TTS" && o.platform_order_id===oid);
       if(!order){
         const r0 = rs[0]; const cu = splitCustomer(r0.cust);
-        const { data, error } = await db.from("orders").insert({
+        const ins = await db.from("orders").insert({
           platform:"TTS", platform_order_id:oid, shipped_by:"tiktok_shipping",
           seller_id: S.me.id,
           order_date: r0.date||null, selling_account_id: r0.acc||null,
@@ -1636,8 +1638,15 @@ async function saveNewRows(){
           customer_name: cu.name, customer_contact: cu.phone, customer_address: cu.address,
           seller_note: r0.note||null, created_by: S.me.id,
         }).select().single();
-        if(error) throw error;
-        order = data; S.orders.push(order); maps.order[order.id]=order; nOrders++;
+        if(ins.error){
+          if(ins.error.code==="23505" || /duplicate key|unique/i.test(ins.error.message||"")){
+            /* đơn đã tồn tại (bấm Lưu 2 lần / người khác vừa tạo) -> lấy lại, KHÔNG tạo trùng */
+            const q = await db.from("orders").select("*").eq("platform","TTS").eq("platform_order_id",oid).maybeSingle();
+            if(q.error) throw q.error;
+            order = q.data;
+            if(order && !S.orders.find(o=>o.id===order.id)){ S.orders.push(order); maps.order[order.id]=order; }
+          } else throw ins.error;
+        } else { order = ins.data; S.orders.push(order); maps.order[order.id]=order; nOrders++; }
       }
       const existing = S.items.filter(i=>i.order_id===order.id).length;
       /* Tái dùng item RỖNG (vd đơn Nạp Excel TTS chỉ có SL, chưa có sản phẩm) -> KHÔNG tạo dòng trùng */
@@ -1661,7 +1670,8 @@ async function saveNewRows(){
       }
       if(toInsert.length){ const { data: its, error: e2 } = await db.from("order_items").insert(toInsert).select(); if(e2) throw e2; S.items.push(...its); nItems += its.length; }
     }
-  }catch(e){ return fail(e); }
+  }catch(e){ window._savingNew=false; return fail(e); }
+  window._savingNew=false;
   buildRows(); NR = [blankRow(), blankRow()];
   toast(`Đã lưu ${nOrders} đơn mới, ${nItems} sản phẩm.`); go("orders");
 }
