@@ -210,7 +210,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.55</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.58</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -592,10 +592,21 @@ function go(v){
 }
 async function reloadData(){ try{ await loadAll(); buildNav(); go(S.view); }catch(e){ fail(e); } }
 /* ================= TỔNG QUAN ================= */
+let dashSort = { k:"team", dir:1 };
+let dashSeller = "", dashTeam = "";
+function setDashFilter(k,v){ if(k==="seller") dashSeller=v; else dashTeam=v; renderDash(); }   /* mặc định: gom theo Nhóm, trong nhóm xếp Đơn giảm dần */
+function setDashSort(k){
+  if(dashSort.k===k) dashSort.dir *= -1;
+  else dashSort = { k, dir:(k==="nm"||k==="team") ? 1 : -1 };
+  renderDash();
+}
 function renderDash(){
-  const rows = S.rows.filter(r=>r.it && inPeriod(r.o.order_date));
+  if(dashSeller && !S.rows.some(r=>sellerName(r.o)===dashSeller)) dashSeller="";
+  if(dashTeam && !S.profiles.some(p=>p.team===dashTeam)) dashTeam="";
+  const _fl = r=> (!dashSeller || sellerName(r.o)===dashSeller) && (!dashTeam || teamOf(r.o)===dashTeam);
+  const rows = S.rows.filter(r=>r.it && inPeriod(r.o.order_date) && _fl(r));
   const active = rows.filter(r=>!["delivered","synced","cancelled"].includes(r.it.item_status));
-  const newToday = S.orders.filter(o=>o.order_date===today()).length;
+  const newToday = new Set(S.rows.filter(r=>_fl(r) && r.o.order_date===today()).map(r=>r.o.id)).size;
   const waitSeller = active.filter(r=>{ const c=readyChecks(r.o,r.it); return !(c.label&&c.design&&c.tracking) && !["ordered","in_production","has_tracking"].includes(r.it.item_status); }).length;
   const waitFFM = rows.filter(r=>isReadyToPush(r.o,r.it)).length;
   const inProd = rows.filter(r=>["ordered","in_production"].includes(r.it.item_status)).length;
@@ -606,7 +617,9 @@ function renderDash(){
   /* biểu đồ đơn 14 ngày gần nhất */
   const _days=[], _dmap={};
   for(let i=13;i>=0;i--){ const d=new Date(); d.setDate(d.getDate()-i); const k=d.toISOString().slice(0,10); _days.push(k); _dmap[k]=0; }
-  for(const o of S.orders){ if(o.order_date && _dmap[o.order_date]!==undefined) _dmap[o.order_date]++; }
+  { const _seen=new Set();
+    for(const r of S.rows){ if(!_fl(r)) continue; const o=r.o;
+      if(o.order_date && _dmap[o.order_date]!==undefined && !_seen.has(o.id)){ _seen.add(o.id); _dmap[o.order_date]++; } } }
   const _mx=Math.max(1,..._days.map(k=>_dmap[k])), _cw=580, _ch=150, _pad=26, _bw=(_cw-2*_pad)/14;
   const _bars=_days.map((k,i)=>{ const v=_dmap[k], h=(_ch-46)*v/_mx, x=_pad+i*_bw, y=_ch-24-h;
     return `<rect x="${(x+2).toFixed(1)}" y="${y.toFixed(1)}" width="${(_bw-4).toFixed(1)}" height="${Math.max(0,h).toFixed(1)}" rx="2" fill="var(--accent)"></rect>`
@@ -629,6 +642,18 @@ function renderDash(){
     <div class="flex"><button class="btn" onclick="exportOrdersCsv()">⇩ Xuất Excel</button>
     <button class="btn" onclick="reloadData()">↻ Tải lại</button></div></div>
   ${periodBar()}
+  ${(()=>{ if(!multiTeam()) return "";
+    const nms=[...new Set(S.rows.map(r=>sellerName(r.o)).filter(x=>x&&x!=="—"))].sort();
+    const tms=[...new Set(S.profiles.map(p=>p.team).filter(Boolean))].sort();
+    return `<div class="card mb"><div class="flex" style="gap:8px;flex-wrap:wrap;align-items:center">
+      <span class="small muted">🔎 Lọc:</span>
+      <select onchange="setDashFilter('seller',this.value)" style="min-width:180px"><option value="">Tất cả seller</option>
+        ${nms.map(n=>`<option value="${esc(n)}" ${dashSeller===n?"selected":""}>${esc(n)}</option>`).join("")}</select>
+      ${tms.length?`<select onchange="setDashFilter('team',this.value)" style="min-width:130px"><option value="">Tất cả nhóm</option>
+        ${tms.map(t=>`<option value="${esc(t)}" ${dashTeam===t?"selected":""}>${esc(t)}</option>`).join("")}</select>`:""}
+      ${(dashSeller||dashTeam)?`<button class="btn btn-sm" onclick="dashSeller='';dashTeam='';renderDash()">✕ Bỏ lọc</button>
+        <span class="badge b-blue">Đang xem: ${esc(dashSeller||"mọi seller")}${dashTeam?` · nhóm ${esc(dashTeam)}`:""}</span>`:""}
+    </div></div>`; })()}
   <div class="kpis">
     <div class="kpi" onclick="go('orders')"><div class="n">${newToday}</div><div class="t">Đơn mới hôm nay</div></div>
     <div class="kpi" onclick="goFilter({special:'lack'})"><div class="n" style="color:var(--yellow)">${waitSeller}</div><div class="t">SP chờ Seller (thiếu điều kiện)</div></div>
@@ -651,21 +676,52 @@ function renderDash(){
     const names=[...new Set(rows.map(r=>sellerName(r.o)).filter(x=>x&&x!=="—"))];
     if(names.length<2) return "";
     const stat=names.map(nm=>{ const R=rows.filter(r=>sellerName(r.o)===nm);
-      return { nm, team:teamOf(R[0].o),
+      return { nm, team:teamOf(R[0].o), un:!R.some(r=>r.o.seller_id),
         nod:new Set(R.map(r=>r.o.id)).size,
         act:R.filter(r=>!["delivered","synced","cancelled"].includes(r.it.item_status)).length,
         lt:R.filter(r=>{const x=slaInfo(r.it);return x&&x.diff<0;}).length,
         rd:R.filter(r=>isReadyToPush(r.o,r.it)).length,
         lk:R.filter(r=>{const c=readyChecks(r.o,r.it);return !["ordered","in_production","has_tracking","synced","delivered","cancelled","issue"].includes(r.it.item_status)&&!(c.label&&c.design&&c.tracking);}).length };
-    }).sort((a,b)=>b.lt-a.lt || b.act-a.act || a.nm.localeCompare(b.nm));
-    return `<div class="card mb"><h3>🧑‍💼 Theo seller <span class="small muted" style="font-weight:400">· bấm để lọc · xếp theo Trễ SLA</span></h3>
-    <div class="tw" style="max-height:340px"><table><tr><th>Seller</th><th>Nhóm</th><th class="right">Đơn</th><th class="right">SP đang xử lý</th><th class="right">Trễ SLA</th><th class="right">Chờ đẩy xưởng</th><th class="right">Thiếu điều kiện</th></tr>
-    ${stat.map(x=>`<tr class="orow" onclick="goFilter({seller:decodeURIComponent('${encodeURIComponent(x.nm).replace(/'/g,"%27")}')})"><td><b>${esc(x.nm)}</b></td><td>${esc(x.team||"")}</td>
+    });
+    const _k=dashSort.k, _d=dashSort.dir;
+    stat.sort((a,b)=>{
+      if(a.un!==b.un) return a.un?1:-1;                       /* chưa gán TK luôn xuống cuối */
+      if(_k==="nm")   return _d*a.nm.localeCompare(b.nm);
+      if(_k==="team"){ const t=(a.team||"zzz").localeCompare(b.team||"zzz"); if(t) return _d*t; return b.nod-a.nod; }
+      return _d*((a[_k]||0)-(b[_k]||0)) || b.nod-a.nod || a.nm.localeCompare(b.nm);
+    });
+    const _ar=k=>dashSort.k===k?(dashSort.dir>0?" ▲":" ▼"):"";
+    const _th=(k,label,right)=>`<th${right?' class="right"':''} style="cursor:pointer;user-select:none" onclick="setDashSort('${k}')" title="Bấm để sắp xếp">${label}${_ar(k)}</th>`;
+    return `<div class="card mb"><h3>🧑‍💼 Theo seller <span class="small muted" style="font-weight:400">· bấm tiêu đề cột để sắp xếp · bấm dòng để lọc</span></h3>
+    <div class="tw" style="max-height:340px"><table><tr>${_th("nm","Seller")}${_th("team","Nhóm")}${_th("nod","Đơn",1)}${_th("act","SP đang xử lý",1)}${_th("lt","Trễ SLA",1)}${_th("rd","Chờ đẩy xưởng",1)}${_th("lk","Thiếu điều kiện",1)}</tr>
+    ${stat.map(x=>`<tr class="orow" onclick="goFilter({seller:decodeURIComponent('${encodeURIComponent(x.nm).replace(/'/g,"%27")}')})"><td${x.un?' class="muted"':''}><b>${esc(x.nm)}</b>${x.un?' <span class="badge b-gray" title="Tên từ file import, chưa gán tài khoản — vào Phân quyền để gán">chưa gán TK</span>':''}</td><td>${esc(x.team||"")}</td>
       <td class="right">${x.nod||""}</td><td class="right">${x.act||""}</td>
       <td class="right ${x.lt?"sla-red":""}">${x.lt||""}</td><td class="right">${x.rd||""}</td><td class="right">${x.lk||""}</td></tr>`).join("")}
-    </table></div><p class="small muted mt">Theo kỳ đang chọn. Bấm 1 dòng để mở danh sách đơn của seller đó.</p></div>`; })()}
+    </table></div><p class="small muted mt">Theo kỳ đang chọn. Bấm 1 dòng để mở danh sách đơn của seller đó. Dòng <b>chưa gán TK</b> là tên thô từ file import — xếp cuối bảng; gán tài khoản ở <b>Phân quyền</b> (cột "Seller cũ") để gộp về đúng người.</p></div>`; })()}
   <div class="card mb"><h3>📈 Đơn theo ngày (14 ngày gần nhất)</h3>
     <svg viewBox="0 0 ${_cw} ${_ch}" style="width:100%;height:auto;max-height:190px" preserveAspectRatio="xMidYMid meet">${_bars}</svg></div>
+  ${(()=>{
+    const bar=(label,n,tot,color)=>{ const w=tot?Math.round(n*100/tot):0;
+      return `<div style="margin:6px 0"><div class="flex" style="justify-content:space-between"><span class="small">${label}</span><b class="small">${n}</b></div>
+      <div style="height:9px;background:#eef1f5;border-radius:5px;overflow:hidden"><div style="height:100%;width:${w}%;background:${color}"></div></div></div>`; };
+    const lateRows = rows.filter(r=>{ const x=slaInfo(r.it); return x && x.diff<0; });
+    const l1=lateRows.filter(r=>{const d=-slaInfo(r.it).diff; return d<=3;}).length;
+    const l2=lateRows.filter(r=>{const d=-slaInfo(r.it).diff; return d>3&&d<=7;}).length;
+    const l3=lateRows.filter(r=>{const d=-slaInfo(r.it).diff; return d>7;}).length;
+    const tl=Math.max(1,lateRows.length);
+    const st=[["Chờ Seller (thiếu ĐK)",waitSeller,"var(--yellow)"],["Chờ FFM đẩy xưởng",waitFFM,"var(--blue)"],
+      ["Đang sản xuất",inProd,"var(--purple)"],
+      ["Có tracking",rows.filter(r=>r.it.item_status==="has_tracking").length,"#0891b2"],
+      ["Đã xong",rows.filter(r=>["delivered","synced"].includes(r.it.item_status)).length,"var(--green)"]];
+    const ts=Math.max(1,st.reduce((n,x)=>n+x[1],0));
+    return `<div class="grid mb" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr))">
+      <div class="card"><h3>⏱ Mức độ trễ SLA (${lateRows.length})</h3>
+        ${lateRows.length?bar("Trễ 1–3 ngày",l1,tl,"#f59e0b")+bar("Trễ 4–7 ngày",l2,tl,"#f97316")+bar("Trễ trên 7 ngày",l3,tl,"#dc2626")
+          :`<p class="muted">Không có SP nào trễ 🎉</p>`}
+        <p class="small muted mt">Ưu tiên xử lý nhóm trễ &gt;7 ngày trước.</p></div>
+      <div class="card"><h3>📊 Cơ cấu xử lý</h3>
+        ${st.map(x=>bar(x[0],x[1],ts,x[2])).join("")}</div>
+    </div>`; })()}
   <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr))">
     <div class="card"><h3>🏭 Hàng chờ theo xưởng</h3>
       <table><tr><th>Xưởng</th><th class="right">Chờ đẩy</th><th class="right">Đang SX</th><th class="right">Có tracking</th><th class="right">Số dư</th></tr>
