@@ -210,7 +210,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.51</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.53</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -1367,7 +1367,7 @@ async function saveItemFFM(id){
   const patch = {
     factory_account_id: $(`#it_facc_${id}`).value || null,
     factory_order_id: $(`#it_ffmid_${id}`).value.trim() || null,
-    tracking_number: $(`#it_trk_${id}`).value.trim() || null,
+    tracking_number: $(`#it_trk_${id}`).value.trim() || null,   /* đồng bộ lên cấp đơn ở dưới */
     tracking_status: $(`#it_trkst_${id}`).value,
     carrier: $(`#it_car_${id}`).value.trim() || null,
     pushed_at: $(`#it_push_${id}`).value || null,
@@ -1376,7 +1376,10 @@ async function saveItemFFM(id){
   };
   const { error } = await db.from("order_items").update(patch).eq("id", id);
   if(error) return fail(error);
-  const it = S.items.find(x=>x.id===id); Object.assign(it, patch); buildRows(); toast("Đã lưu phần FFM."); closeModal(); go(S.view);
+  const it = S.items.find(x=>x.id===id); Object.assign(it, patch);
+  const _o = maps.order[it.order_id];
+  if(_o) await syncItemTracking(it, _o);
+  buildRows(); toast("Đã lưu phần FFM."); closeModal(); go(S.view);
 }
 async function addItem(orderId){
   const { data, error } = await db.from("order_items").insert({ order_id: orderId, quantity: 1 }).select().single();
@@ -1648,6 +1651,18 @@ async function saveNewRows(){
       /* chỉ gộp khi TRÙNG CẢ: Order ID + Tracking + Ngày note (hôm nay) */
       let order = S.orders.find(o=>o.platform==="TTS" && o.platform_order_id===oid
         && orderTrack(o)===trk && orderNoteDay(o)===today());
+      /* Lưu bổ sung tracking cho đơn đã note cùng ngày (đơn cũ chưa có tracking) -> GỘP, không đẻ đơn mới */
+      if(!order && trk){
+        const cand = S.orders.find(o=>o.platform==="TTS" && o.platform_order_id===oid
+          && orderNoteDay(o)===today() && orderTrack(o)==="");
+        if(cand){
+          order = cand;
+          /* CHỈ gộp + ghi tracking ở cấp đơn. KHÔNG tự điền tracking cho SP cũ đang trống —
+             SP đó sau này có tracking khác thì sẽ tự tách. */
+          const up = await db.from("orders").update({ tracking_number: trk, updated_by:S.me.id }).eq("id", cand.id);
+          if(!up.error) cand.tracking_number = trk;
+        }
+      }
       if(!order){
         const r0 = rs[0]; const cu = splitCustomer(r0.cust);
         const ins = await db.from("orders").insert({
@@ -2838,9 +2853,45 @@ async function gridSave(itemId){
     }
     if(sOk||fOk){ const v=val("tracking_number"); if(v!==undefined) ip.tracking_number=tr(v); }
     if(Object.keys(ip).length){ const {data,error}=await db.from("order_items").update(ip).eq("id",itemId).select().single(); if(error) throw error; Object.assign(it,data||ip); }
+    if(ip.tracking_number !== undefined) await syncItemTracking(it, o);
     try{ document.querySelectorAll(`input[id$="_${itemId}"],select[id$="_${itemId}"]`).forEach(el=>{ el.classList.remove("okflash"); void el.offsetWidth; el.classList.add("okflash"); }); }catch(_){}
     buildRows(); buildNav(); toast("Đã lưu.");
   }catch(e){ fail(e); }
+}
+/* Sau khi sửa tracking của 1 SP: nếu khác tracking của SP khác trong cùng đơn -> TÁCH sang đơn riêng.
+   Nếu không xung đột thì chỉ ghi tracking lên cấp đơn (khi đơn còn trống). */
+async function syncItemTracking(it, o){
+  const trk = String(it.tracking_number||"").trim();
+  if(!it || !o || !trk) return;
+  const others = S.items.filter(i=>i.order_id===o.id && i.id!==it.id);
+  const conflict = others.some(i=>{ const t=String(i.tracking_number||"").trim(); return t && t!==trk; });
+  if(!conflict){
+    if(!String(o.tracking_number||"").trim()){
+      const { error } = await db.from("orders").update({ tracking_number: trk }).eq("id", o.id);
+      if(!error) o.tracking_number = trk;
+    }
+    return;
+  }
+  /* Xung đột -> tách SP này sang đơn cùng Order ID + tracking mới + cùng ngày note */
+  let dest = S.orders.find(x=>x.platform===o.platform && x.platform_order_id===o.platform_order_id
+    && String(x.tracking_number||"").trim()===trk && orderNoteDay(x)===orderNoteDay(o));
+  if(!dest){
+    const { data, error } = await db.from("orders").insert({
+      platform:o.platform, platform_order_id:o.platform_order_id, shipped_by:o.shipped_by,
+      seller_id:o.seller_id, seller_name_import:o.seller_name_import,
+      order_date:o.order_date, selling_account_id:o.selling_account_id,
+      label_link:o.label_link, label_fee:o.label_fee,
+      customer_name:o.customer_name, customer_contact:o.customer_contact, customer_address:o.customer_address,
+      buyer_note:o.buyer_note, seller_note:o.seller_note,
+      tracking_number:trk, note_day:o.note_day||null, created_by:S.me.id,
+    }).select().single();
+    if(error){ toast("Không tách được đơn: "+(error.message||error), true); return; }
+    dest = data; S.orders.push(dest); maps.order[dest.id]=dest;
+  }
+  const { error:e2 } = await db.from("order_items").update({ order_id:dest.id, source_line:null }).eq("id", it.id);
+  if(e2){ toast("Không chuyển được SP: "+(e2.message||e2), true); return; }
+  it.order_id = dest.id; it.source_line = null;
+  toast("Tracking khác đơn → đã tách sản phẩm này sang đơn riêng.");
 }
 function toggleSel(id,on){ if(!S.sel) S.sel=new Set(); if(on) S.sel.add(id); else S.sel.delete(id); updateSelBar(); }
 function selAll(on){ if(!S.sel) S.sel=new Set(); document.querySelectorAll(".rsel").forEach(cb=>{ cb.checked=on; const id=cb.dataset.id; if(on) S.sel.add(id); else S.sel.delete(id); }); updateSelBar(); }
