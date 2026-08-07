@@ -210,7 +210,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.60</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.61</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -670,14 +670,16 @@ function renderDash(){
   ${periodBar()}
   ${(()=>{
     const nms=[...new Set(S.rows.map(r=>sellerName(r.o)).filter(x=>x&&x!=="—"))].sort();
-    if(nms.length<2 && !dashSeller && !dashTeam) return "";
+    const hasNone = S.rows.some(r=>sellerName(r.o)==="—");
+    if(!nms.length && !hasNone) return "";
     const tms=multiTeam()?[...new Set(S.profiles.map(p=>p.team).filter(Boolean))].sort():[];
     const meName=S.me.full_name;
     return `<div class="card mb"><div class="flex" style="gap:8px;flex-wrap:wrap;align-items:center">
       <span class="small muted">🔎 Lọc:</span>
       ${nms.includes(meName)?`<button class="btn btn-sm ${dashSeller===meName?"btn-p":""}" onclick="setDashFilter('seller',decodeURIComponent('${encodeURIComponent(meName).replace(/'/g,"%27")}'))">👤 Chỉ đơn của tôi</button>`:""}
       <select onchange="setDashFilter('seller',this.value)" style="min-width:180px"><option value="">Tất cả seller</option>
-        ${nms.map(n=>`<option value="${esc(n)}" ${dashSeller===n?"selected":""}>${esc(n)}</option>`).join("")}</select>
+        ${nms.map(n=>`<option value="${esc(n)}" ${dashSeller===n?"selected":""}>${esc(n)}</option>`).join("")}
+        ${hasNone?`<option value="—" ${dashSeller==="—"?"selected":""}>— chưa gán seller —</option>`:""}</select>
       ${tms.length?`<select onchange="setDashFilter('team',this.value)" style="min-width:130px"><option value="">Tất cả nhóm</option>
         ${tms.map(t=>`<option value="${esc(t)}" ${dashTeam===t?"selected":""}>${esc(t)}</option>`).join("")}</select>`:""}
       ${(dashSeller||dashTeam)?`<button class="btn btn-sm" onclick="dashSeller='';dashTeam='';renderDash()">✕ Bỏ lọc</button>
