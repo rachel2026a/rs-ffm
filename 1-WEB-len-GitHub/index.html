@@ -210,7 +210,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.58</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.60</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -593,7 +593,8 @@ function go(v){
 async function reloadData(){ try{ await loadAll(); buildNav(); go(S.view); }catch(e){ fail(e); } }
 /* ================= TỔNG QUAN ================= */
 let dashSort = { k:"team", dir:1 };
-let dashSeller = "", dashTeam = "";
+let dashSeller = "", dashTeam = "", dashChart = "d14";
+function setDashChart(m){ dashChart=m; renderDash(); }
 function setDashFilter(k,v){ if(k==="seller") dashSeller=v; else dashTeam=v; renderDash(); }   /* mặc định: gom theo Nhóm, trong nhóm xếp Đơn giảm dần */
 function setDashSort(k){
   if(dashSort.k===k) dashSort.dir *= -1;
@@ -614,17 +615,42 @@ function renderDash(){
   const issues = rows.filter(r=>r.it.item_status==="issue").length;
   const alerts = buildAlerts();
 
-  /* biểu đồ đơn 14 ngày gần nhất */
-  const _days=[], _dmap={};
-  for(let i=13;i>=0;i--){ const d=new Date(); d.setDate(d.getDate()-i); const k=d.toISOString().slice(0,10); _days.push(k); _dmap[k]=0; }
+  /* biểu đồ đơn: 14 ngày / 30 ngày / 12 tuần / 12 tháng */
+  const _z=n=>String(n).padStart(2,"0");
+  const _keys=[], _labels=[], _dmap={};
+  let _keyOf;
+  if(dashChart==="d14" || dashChart==="d30"){
+    const _n = dashChart==="d14" ? 14 : 30;
+    for(let i=_n-1;i>=0;i--){ const d=new Date(); d.setDate(d.getDate()-i);
+      const k=`${d.getFullYear()}-${_z(d.getMonth()+1)}-${_z(d.getDate())}`;
+      _keys.push(k); _labels.push(`${_z(d.getDate())}/${_z(d.getMonth()+1)}`); _dmap[k]=0; }
+    _keyOf = ds=>ds;
+  } else if(dashChart==="w12"){
+    for(let i=11;i>=0;i--){ const d=new Date(); d.setDate(d.getDate()-i*7);
+      const dow=(d.getDay()+6)%7; const m=new Date(d); m.setDate(d.getDate()-dow);
+      const k=`${m.getFullYear()}-${_z(m.getMonth()+1)}-${_z(m.getDate())}`;
+      _keys.push(k); _labels.push(`${_z(m.getDate())}/${_z(m.getMonth()+1)}`); _dmap[k]=0; }
+    _keyOf = ds=>{ const d=new Date(ds+"T00:00:00"); const dow=(d.getDay()+6)%7; const m=new Date(d); m.setDate(d.getDate()-dow);
+      return `${m.getFullYear()}-${_z(m.getMonth()+1)}-${_z(m.getDate())}`; };
+  } else {
+    const t=new Date();
+    for(let i=11;i>=0;i--){ const d=new Date(t.getFullYear(), t.getMonth()-i, 1);
+      const k=`${d.getFullYear()}-${_z(d.getMonth()+1)}`;
+      _keys.push(k); _labels.push(`${_z(d.getMonth()+1)}/${String(d.getFullYear()).slice(2)}`); _dmap[k]=0; }
+    _keyOf = ds=>ds.slice(0,7);
+  }
   { const _seen=new Set();
     for(const r of S.rows){ if(!_fl(r)) continue; const o=r.o;
-      if(o.order_date && _dmap[o.order_date]!==undefined && !_seen.has(o.id)){ _seen.add(o.id); _dmap[o.order_date]++; } } }
-  const _mx=Math.max(1,..._days.map(k=>_dmap[k])), _cw=580, _ch=150, _pad=26, _bw=(_cw-2*_pad)/14;
-  const _bars=_days.map((k,i)=>{ const v=_dmap[k], h=(_ch-46)*v/_mx, x=_pad+i*_bw, y=_ch-24-h;
-    return `<rect x="${(x+2).toFixed(1)}" y="${y.toFixed(1)}" width="${(_bw-4).toFixed(1)}" height="${Math.max(0,h).toFixed(1)}" rx="2" fill="var(--accent)"></rect>`
-      +`<text x="${(x+_bw/2).toFixed(1)}" y="${_ch-8}" font-size="8" fill="var(--muted)" text-anchor="middle">${k.slice(8)}/${k.slice(5,7)}</text>`
-      +(v?`<text x="${(x+_bw/2).toFixed(1)}" y="${(y-2).toFixed(1)}" font-size="9" fill="var(--text)" text-anchor="middle">${v}</text>`:""); }).join("");
+      if(!o.order_date || _seen.has(o.id)) continue; _seen.add(o.id);
+      const k=_keyOf(String(o.order_date).slice(0,10)); if(k in _dmap) _dmap[k]++; } }
+  const _nb=_keys.length, _tot=_keys.reduce((n,k)=>n+_dmap[k],0);
+  const _mx=Math.max(1,..._keys.map(k=>_dmap[k])), _cw=580, _ch=150, _pad=26, _bw=(_cw-2*_pad)/_nb;
+  const _every=_nb>20?3:1;
+  const _bars=_keys.map((k,i)=>{ const v=_dmap[k], h=(_ch-46)*v/_mx, x=_pad+i*_bw, y=_ch-24-h;
+    return `<rect x="${(x+1).toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(1,_bw-2).toFixed(1)}" height="${Math.max(0,h).toFixed(1)}" rx="2" fill="var(--accent)"><title>${_labels[i]}: ${v} đơn</title></rect>`
+      +((i%_every===0||i===_nb-1)?`<text x="${(x+_bw/2).toFixed(1)}" y="${_ch-8}" font-size="${_nb>20?7:8}" fill="var(--muted)" text-anchor="middle">${_labels[i]}</text>`:"")
+      +(v&&_nb<=20?`<text x="${(x+_bw/2).toFixed(1)}" y="${(y-2).toFixed(1)}" font-size="9" fill="var(--text)" text-anchor="middle">${v}</text>`:""); }).join("");
+  const _chBtn=(m,l)=>`<button class="btn btn-sm ${dashChart===m?"btn-p":""}" onclick="setDashChart('${m}')">${l}</button>`;
 
   /* hàng chờ theo xưởng */
   const byF = {};
@@ -642,11 +668,14 @@ function renderDash(){
     <div class="flex"><button class="btn" onclick="exportOrdersCsv()">⇩ Xuất Excel</button>
     <button class="btn" onclick="reloadData()">↻ Tải lại</button></div></div>
   ${periodBar()}
-  ${(()=>{ if(!multiTeam()) return "";
+  ${(()=>{
     const nms=[...new Set(S.rows.map(r=>sellerName(r.o)).filter(x=>x&&x!=="—"))].sort();
-    const tms=[...new Set(S.profiles.map(p=>p.team).filter(Boolean))].sort();
+    if(nms.length<2 && !dashSeller && !dashTeam) return "";
+    const tms=multiTeam()?[...new Set(S.profiles.map(p=>p.team).filter(Boolean))].sort():[];
+    const meName=S.me.full_name;
     return `<div class="card mb"><div class="flex" style="gap:8px;flex-wrap:wrap;align-items:center">
       <span class="small muted">🔎 Lọc:</span>
+      ${nms.includes(meName)?`<button class="btn btn-sm ${dashSeller===meName?"btn-p":""}" onclick="setDashFilter('seller',decodeURIComponent('${encodeURIComponent(meName).replace(/'/g,"%27")}'))">👤 Chỉ đơn của tôi</button>`:""}
       <select onchange="setDashFilter('seller',this.value)" style="min-width:180px"><option value="">Tất cả seller</option>
         ${nms.map(n=>`<option value="${esc(n)}" ${dashSeller===n?"selected":""}>${esc(n)}</option>`).join("")}</select>
       ${tms.length?`<select onchange="setDashFilter('team',this.value)" style="min-width:130px"><option value="">Tất cả nhóm</option>
@@ -698,8 +727,13 @@ function renderDash(){
       <td class="right">${x.nod||""}</td><td class="right">${x.act||""}</td>
       <td class="right ${x.lt?"sla-red":""}">${x.lt||""}</td><td class="right">${x.rd||""}</td><td class="right">${x.lk||""}</td></tr>`).join("")}
     </table></div><p class="small muted mt">Theo kỳ đang chọn. Bấm 1 dòng để mở danh sách đơn của seller đó. Dòng <b>chưa gán TK</b> là tên thô từ file import — xếp cuối bảng; gán tài khoản ở <b>Phân quyền</b> (cột "Seller cũ") để gộp về đúng người.</p></div>`; })()}
-  <div class="card mb"><h3>📈 Đơn theo ngày (14 ngày gần nhất)</h3>
-    <svg viewBox="0 0 ${_cw} ${_ch}" style="width:100%;height:auto;max-height:190px" preserveAspectRatio="xMidYMid meet">${_bars}</svg></div>
+  <div class="card mb"><div class="spread mb" style="align-items:center;flex-wrap:wrap;gap:8px">
+      <h3 style="margin:0">📈 Số đơn ${dashChart==="w12"?"theo tuần (12 tuần)":dashChart==="m12"?"theo tháng (12 tháng)":`theo ngày (${dashChart==="d30"?30:14} ngày)`}
+        <span class="small muted" style="font-weight:400">· tổng <b>${_tot}</b> đơn${_nb?` · TB ${(_tot/_nb).toFixed(1)}/${dashChart==="w12"?"tuần":dashChart==="m12"?"tháng":"ngày"}`:""}</span></h3>
+      <div class="flex" style="gap:4px">${_chBtn("d14","14 ngày")}${_chBtn("d30","30 ngày")}${_chBtn("w12","Theo tuần")}${_chBtn("m12","Theo tháng")}</div>
+    </div>
+    <svg viewBox="0 0 ${_cw} ${_ch}" style="width:100%;height:auto;max-height:190px" preserveAspectRatio="xMidYMid meet">${_bars}</svg>
+    <p class="small muted mt">Tính theo <b>ngày order</b>, đếm số đơn (không phải số SP). Rê chuột lên cột để xem chi tiết.</p></div>
   ${(()=>{
     const bar=(label,n,tot,color)=>{ const w=tot?Math.round(n*100/tot):0;
       return `<div style="margin:6px 0"><div class="flex" style="justify-content:space-between"><span class="small">${label}</span><b class="small">${n}</b></div>
