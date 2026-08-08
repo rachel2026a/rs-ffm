@@ -210,7 +210,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.61</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.62</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -253,6 +253,14 @@ const STATUS_BADGE = { new:"b-gray", waiting_design:"b-yellow", design_ok:"b-blu
   ordered:"b-purple", in_production:"b-purple", has_tracking:"b-blue",
   synced:"b-blue", delivered:"b-green", issue:"b-red", cancelled:"b-gray" };
 const ROLE_VI = { seller:"Seller", ffm:"FFM", admin:"Admin (SD)" };
+/* Sàn: gợi ý sẵn + tự gom các sàn đang dùng trong dữ liệu. Gõ tên mới là thêm được. */
+const PLATFORM_SUGGEST = ["TTS","AMZ","ETSY","WALMART","EBAY","SHOPIFY"];
+function platformList(){
+  const set = new Set(PLATFORM_SUGGEST);
+  (S.sellAccs||[]).forEach(a=>{ if(a.platform) set.add(String(a.platform).trim().toUpperCase()); });
+  (S.orders||[]).forEach(o=>{ if(o.platform) set.add(String(o.platform).trim().toUpperCase()); });
+  return [...set].filter(Boolean).sort();
+}
 const SCOPE_VI = { none:"Không", own:"Của mình", team:"Nhóm", all:"Tất cả" };
 
 /* ---------------- helpers ---------------- */
@@ -1588,7 +1596,7 @@ function copyCell(i,k){
   copyText(v); toast("Đã copy — dán (Ctrl+V) vào ô bất kỳ.");
 }
 function copyColDown(i){ const p=NR[i]; if(!p)return; for(let j=i+1;j<NR.length;j++){ if(!NR[j].order_id.trim()) continue; NR[j].date=p.date;NR[j].acc=p.acc;NR[j].accname=p.accname;NR[j].tmpl=p.tmpl;NR[j].tmplname=p.tmplname;NR[j].ptype=p.ptype;NR[j].fact=p.fact;NR[j].dim=p.dim; } rerenderNewHost(); toast("Đã chép xuống các dòng dưới."); }
-function dupBadge(oid){ oid=(oid||"").trim(); if(!oid)return ""; return S.orders.some(o=>o.platform==="TTS"&&o.platform_order_id===oid)?' <span class="badge b-yellow" title="Order ID đã có — sản phẩm sẽ THÊM vào đơn cũ, không tạo trùng">đã có</span>':""; }
+function dupBadge(oid){ oid=(oid||"").trim(); if(!oid)return ""; return S.orders.some(o=>o.platform_order_id===oid)?' <span class="badge b-yellow" title="Order ID đã có. Cùng tracking + cùng ngày note -> gộp vào đơn cũ; khác tracking hoặc khác ngày -> tạo đơn riêng.">đã có</span>':""; }
 function custPreview(v){ if(!v||!v.trim())return ""; const c=splitCustomer(v); const a=[c.name?"👤"+c.name:"",c.phone?"📞"+c.phone:"",c.address?"📍"+c.address:""].filter(Boolean); return a.length?esc(a.join(" · ")):'<span class="sla-red">chưa tách được — sửa lại</span>'; }
 /* Tách "Customer Info" gộp 1 ô (giống Excel) -> name / phone / address */
 function splitCustomer(raw){
@@ -1760,11 +1768,12 @@ async function saveNewRows(){
     for(const _k of Object.keys(groups)){
       const { oid, trk, rs } = groups[_k];
       /* chỉ gộp khi TRÙNG CẢ: Order ID + Tracking + Ngày note (hôm nay) */
-      let order = S.orders.find(o=>o.platform==="TTS" && o.platform_order_id===oid
+      const _plat = (maps.sellAcc[rs[0].acc] && maps.sellAcc[rs[0].acc].platform) || "TTS";
+      let order = S.orders.find(o=>o.platform===_plat && o.platform_order_id===oid
         && orderTrack(o)===trk && orderNoteDay(o)===today());
       /* Lưu bổ sung tracking cho đơn đã note cùng ngày (đơn cũ chưa có tracking) -> GỘP, không đẻ đơn mới */
       if(!order && trk){
-        const cand = S.orders.find(o=>o.platform==="TTS" && o.platform_order_id===oid
+        const cand = S.orders.find(o=>o.platform===_plat && o.platform_order_id===oid
           && orderNoteDay(o)===today() && orderTrack(o)==="");
         if(cand){
           order = cand;
@@ -1777,7 +1786,7 @@ async function saveNewRows(){
       if(!order){
         const r0 = rs[0]; const cu = splitCustomer(r0.cust);
         const ins = await db.from("orders").insert({
-          platform:"TTS", platform_order_id:oid, shipped_by:"tiktok_shipping",
+          platform:_plat, platform_order_id:oid, shipped_by:"tiktok_shipping",
           seller_id: S.me.id, tracking_number: trk || null,
           order_date: r0.date||null, selling_account_id: r0.acc||null,
           label_link: r0.label||null,
@@ -1787,7 +1796,7 @@ async function saveNewRows(){
         if(ins.error){
           if(ins.error.code==="23505" || /duplicate key|unique/i.test(ins.error.message||"")){
             /* đơn đã tồn tại (bấm Lưu 2 lần / người khác vừa tạo) -> lấy lại, KHÔNG tạo trùng */
-            const q = await db.from("orders").select("*").eq("platform","TTS").eq("platform_order_id",oid);
+            const q = await db.from("orders").select("*").eq("platform",_plat).eq("platform_order_id",oid);
             if(q.error) throw q.error;
             order = (q.data||[]).find(x=>String(x.tracking_number||"").trim()===trk && orderNoteDay(x)===today()) || null;
             if(!order) throw ins.error;
@@ -2515,7 +2524,9 @@ function catForm(id){
     <label>Link template</label><input id="cf_link" value="${esc(cur.template_link||"")}">
     <label>Active</label><select id="cf_act"><option value="1" ${cur.active!==false?"selected":""}>✓ Dùng</option><option value="0" ${cur.active===false?"selected":""}>Ẩn</option></select>`;
   if(t==="selling_accounts") F = `<label>Tên * (vd TTS33)</label><input id="cf_name" value="${esc(cur.name||"")}">
-    <label>Sàn</label><select id="cf_plat"><option ${cur.platform==="TTS"?"selected":""}>TTS</option><option ${cur.platform==="AMZ"?"selected":""}>AMZ</option></select>
+    <label>Sàn <span class="small muted">(gõ tên sàn mới nếu chưa có trong danh sách)</span></label>
+    <input id="cf_plat" list="dl_plat" value="${esc(cur.platform||"TTS")}" placeholder="TTS / AMZ / ETSY / WALMART..." autocomplete="off">
+    <datalist id="dl_plat">${platformList().map(x=>`<option value="${esc(x)}">`).join("")}</datalist>
     <label>Note</label><input id="cf_note" value="${esc(cur.note||"")}">
     <label>Active</label><select id="cf_act"><option value="1" ${cur.active!==false?"selected":""}>✓ Dùng</option><option value="0" ${cur.active===false?"selected":""}>Ẩn</option></select>${id?`
     <hr style="margin:12px 0;border:none;border-top:1px solid #e2e8f0">
@@ -2543,7 +2554,7 @@ async function catSave(id){
   if(t==="templates") row = { code:$("#cf_code").value.trim()||null, name:$("#cf_name").value.trim(),
     product_type:$("#cf_ptype").value||null, factory_id:$("#cf_fact").value||null,
     dimension:$("#cf_dim").value||null, template_link:$("#cf_link").value||null, active:$("#cf_act").value==="1" };
-  if(t==="selling_accounts") row = { name:$("#cf_name").value.trim(), platform:$("#cf_plat").value,
+  if(t==="selling_accounts") row = { name:$("#cf_name").value.trim(), platform:($("#cf_plat").value||"TTS").trim().toUpperCase(),
     note:$("#cf_note").value||null, active:$("#cf_act").value==="1" };
   if(t==="factory_accounts"){
     row = { factory_id:$("#cf_fact").value||null, email:$("#cf_email").value.trim(),
