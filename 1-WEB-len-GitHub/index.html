@@ -210,7 +210,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.63</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.64</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -871,8 +871,14 @@ function renderAlerts(){
 function itemLabel(it){
   if(!it) return "(chưa có SP)";
   const t = it.template_id && maps.template[it.template_id];
-  return (t ? (t.code?t.code+" · ":"")+ (it.product_type||t.product_type||"") : (it.product_type || it.product_title || it.template_code || "")) || (it.product_title||"");
+  /* Ưu tiên: Product Type của SP -> của Template -> TÊN Template -> tiêu đề SP.
+     Tránh ra chuỗi cụt kiểu "145 ·" khi Template chưa điền Product Type. */
+  const nm = t ? (it.product_type || t.product_type || t.name || it.product_title || "")
+                : (it.product_type || t_none(it));
+  const out = t ? ((t.code ? t.code+" · " : "") + nm) : nm;
+  return String(out).replace(/[·\s]+$/,"").trim() || "(chưa đặt tên SP)";
 }
+function t_none(it){ return it.product_title || it.template_code || ""; }
 function filteredRows(){
   const f = S.filters, q = f.q.trim().toLowerCase();
   return S.rows.filter(r=>{
