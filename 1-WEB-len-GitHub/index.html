@@ -210,7 +210,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.72</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.74</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -239,7 +239,7 @@ const S = {
   orders: [], items: [],           // dữ liệu chính
   balances: [],                    // v_factory_balance
   rows: [],                        // item-per-row đã join (bảng đơn hàng)
-  page: 1, perPage: 100, fullLoaded: false,
+  page: 1, perPage: 100, fullLoaded: false, loadFrom: null,
   filters: { q:"", seller:"", factory:"", status:"", multi:false, special:"", dateFrom:"", dateTo:"", account:"", sort:"created", sortDir:"desc", batch:null },
   view: "dash",
   period: { mode:"all", from:"", to:"" },   /* bộ lọc thời gian dùng chung */
@@ -316,14 +316,17 @@ const LOAD_DAYS = 45;
 function loadCutoff(){ const d=new Date(); d.setDate(d.getDate()-LOAD_DAYS);
   const z=n=>String(n).padStart(2,"0"); return `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())}`; }
 /* Lấy đơn KÈM sản phẩm trong 1 lượt (ít request hơn hẳn). full=true -> lấy toàn bộ lịch sử. */
-async function fetchOrders(full){
+async function fetchOrders(full, fromDate){
   const size = 500; let from = 0; const orders = [], items = [], seen = new Set();
   const cut = loadCutoff();
   for(;;){
     let q = db.from("orders").select("*, order_items(*)")
       .order("order_date",{ascending:false}).order("id",{ascending:true})   /* khoá phụ: phân trang không sót/lặp */
       .range(from, from+size-1);
-    if(!full) q = q.is("archived_at", null).or(`order_date.gte.${cut},order_date.is.null`);
+    if(!full){
+      if(fromDate) q = q.gte("order_date", fromDate);                     /* kỳ đang chọn -> lấy cả đơn đã đóng sổ */
+      else q = q.is("archived_at", null).or(`order_date.gte.${cut},order_date.is.null`);
+    }
     const { data, error } = await q;
     if(error) throw error;
     for(const o of (data||[])){ if(seen.has(o.id)) continue; seen.add(o.id);
@@ -335,7 +338,7 @@ async function fetchOrders(full){
 }
 /* Kéo về bộ nhớ các đơn theo danh sách Order ID (kèm SP) — dùng trước khi Import / lưu đơn,
    để KHÔNG tạo đơn trùng khi đơn cũ nằm ngoài phạm vi tải nhanh. */
-async function ensureOrdersLoaded(oids){
+async function ensureOrdersLoaded(oids, forceShow){
   const list=[...new Set((oids||[]).map(x=>String(x||"").trim()).filter(Boolean))];
   const miss=list.filter(id=>!S.orders.some(o=>o.platform_order_id===id));
   if(!miss.length) return 0;
@@ -346,11 +349,13 @@ async function ensureOrdersLoaded(oids){
     if(error) throw error;
     for(const o of (data||[])){
       const its=o.order_items||[]; delete o.order_items;
+      if(forceShow) o._forceShow = true;
       if(!maps.order[o.id]){ S.orders.push(o); maps.order[o.id]=o; got++; }
+      else if(forceShow) maps.order[o.id]._forceShow = true;
       for(const it of its) if(!S.items.some(x=>x.id===it.id)) S.items.push(it);
     }
   }
-  if(got) buildRows();
+  if(got || forceShow) buildRows();
   return got;
 }
 /* Kéo 1 đơn (kèm SP) khi realtime báo có thay đổi ở đơn chưa tải */
@@ -373,9 +378,33 @@ async function adoptOrder(id, checkScope){
   slaCacheClear(); buildRows(); buildNav();
   clearTimeout(window._adoptT); window._adoptT=setTimeout(()=>{ if(!editingNow()) go(S.view); }, 400);
 }
+/* Tìm đơn CŨ (ngoài phạm vi tải nhanh / đã đóng sổ) theo Order ID · Tracking · Tên khách.
+   Chỉ kéo về đúng đơn khớp -> xem được đơn cũ mà không phải tải toàn bộ lịch sử. */
+async function searchOldOrders(){
+  const q = String((S.filters&&S.filters.q)||"").trim().replace(/[,()"']/g," ").trim();
+  if(q.length < 3) return toast("Nhập ít nhất 3 ký tự (Order ID / tracking / tên khách).", true);
+  const like = `%${q}%`;
+  toast("Đang tìm trong đơn cũ…");
+  try{
+    const { data, error } = await db.from("orders").select("*, order_items(*)")
+      .or(`platform_order_id.ilike.${like},tracking_number.ilike.${like},customer_name.ilike.${like}`)
+      .limit(300);
+    if(error) throw error;
+    let added=0;
+    for(const o of (data||[])){
+      const its=o.order_items||[]; delete o.order_items;
+      o._forceShow = true;
+      if(!maps.order[o.id]){ S.orders.push(o); maps.order[o.id]=o; added++; }
+      else maps.order[o.id]._forceShow = true;
+      for(const it of its) if(!S.items.some(x=>x.id===it.id)) S.items.push(it);
+    }
+    slaCacheClear(); buildRows(); buildNav(); renderOrders();
+    toast(added ? `Đã tìm thấy ${added} đơn cũ khớp "${q}".` : `Không có đơn cũ nào khớp "${q}".`);
+  }catch(e){ fail(e); }
+}
 async function quickMode(){
-  if(!S.fullLoaded) return;
-  S.fullLoaded = false;
+  if(!S.fullLoaded && !S.loadFrom) return;
+  S.fullLoaded = false; S.loadFrom = null; S.period.mode = "month";
   try{ await loadAll(); buildNav(); go(S.view); toast("Đã về chế độ nhanh."); }catch(e){ fail(e); }
 }
 async function loadFullHistory(){
@@ -554,7 +583,7 @@ async function loadAll(){
     fetchAll("templates",{order:"code",asc:true}),
     fetchAll("selling_accounts"),
     fetchAll("factory_accounts").catch(()=>[]),
-    fetchOrders(!!S.fullLoaded),
+    fetchOrders(!!S.fullLoaded, S.loadFrom||null),
     db.from("v_factory_balance").select("*").then(r=>{ if(r.error) throw r.error; return r.data; }).catch(()=>[]),
     db.from("care_grants").select("order_id").eq("grantee", S.user.id)
       .gt("expires_at", new Date().toISOString()).then(r=>r.data||[]).catch(()=>[]),
@@ -581,14 +610,14 @@ function buildRows(){
   for(const k in byOrder) byOrder[k].sort((a,b)=>(a.source_line||0)-(b.source_line||0));
   S.rows = [];
   for(const o of S.orders){
-    if(o.archived_at && !S.fullLoaded) continue;
+    if(o.archived_at && !S.fullLoaded && !o._forceShow) continue;
     const its = byOrder[o.id] || [null];
     for(const it of its) S.rows.push({ o, it, multi: (byOrder[o.id]||[]).length>1 });
   }
   /* Phát hiện TRÙNG khách/địa chỉ giữa các ĐƠN KHÁC NHAU (góp ý 7.2) */
   const custMap = {};
   for(const o of S.orders){
-    if(o.archived_at && !S.fullLoaded) continue;
+    if(o.archived_at && !S.fullLoaded && !o._forceShow) continue;
     const key = ((o.customer_name||"")+"|"+(o.customer_address||"")).toLowerCase().replace(/\s+/g," ").trim();
     if(key.length > 10 && o.customer_name) (custMap[key] ||= []).push(o.id);
   }
@@ -599,7 +628,7 @@ function buildRows(){
   /* Cả đơn đủ điều kiện đẩy: MỌI pcs đều có Label + Design + Tracking (gate đơn nhiều pcs) */
   S.orderAllReady = new Set();
   for(const o of S.orders){
-    if(o.archived_at && !S.fullLoaded) continue;
+    if(o.archived_at && !S.fullLoaded && !o._forceShow) continue;
     const its = byOrder[o.id]; if(!its || !its.length) continue;
     if(its.every(x=>{ const c=readyChecks(o,x); return c.label && c.design && c.tracking; })) S.orderAllReady.add(o.id);
   }
@@ -824,7 +853,7 @@ function renderDash(){
     <div class="flex"><button class="btn" onclick="exportOrdersCsv()">⇩ Xuất Excel</button>
     <button class="btn" onclick="reloadData()">↻ Tải lại</button></div></div>
   ${periodBar()}
-  ${S.fullLoaded?"":`<div class="card mb" style="border-left:3px solid #f59e0b"><span class="small">⚡ Số liệu tính trên <b>đơn từ ${fmtD(loadCutoff())}</b> trở lại đây (đơn cũ đã đóng sổ không tính). Xem/xuất báo cáo dài hạn thì bấm <button class="btn btn-sm" onclick="loadFullHistory()">📜 Tải toàn bộ lịch sử</button></span></div>`}
+  ${S.fullLoaded?"":`<div class="card mb" style="border-left:3px solid #f59e0b"><span class="small">⚡ Số liệu tính trên <b>đơn từ ${fmtD(loadedFrom())}</b> trở lại đây. Chọn kỳ rộng hơn (Tháng này / Năm nay / Tùy chọn) thì tool <b>tự tải thêm cho khớp kỳ</b>. Hoặc bấm <button class="btn btn-sm" onclick="loadFullHistory()">📜 Tải toàn bộ lịch sử</button></span></div>`}
   ${(()=>{
     const nms=[...new Set(S.rows.map(r=>sellerName(r.o)).filter(x=>x&&x!=="—"))].sort();
     const hasNone = S.rows.some(r=>sellerName(r.o)==="—");
@@ -1106,11 +1135,22 @@ function periodBar(){
     ${p.mode!=="all"?`<span class="badge b-blue">${b.from||"…"} → ${b.to||"…"}</span>`:""}
   </div></div>`;
 }
-function setPeriod(m){ S.period.mode=m; S.page=1; go(S.view); }
+function loadedFrom(){ return S.loadFrom || loadCutoff(); }
+/* Kỳ chọn rộng hơn phần đã tải -> TẢI THÊM, để số liệu luôn khớp với kỳ đang chọn */
+async function ensurePeriodLoaded(){
+  if(S.fullLoaded) return;
+  if(S.period.mode==="all"){ await loadFullHistory(); return; }
+  const b = periodBounds(); const need = b.from;
+  if(!need || need >= loadedFrom()) return;
+  S.loadFrom = need;
+  toast("Đang tải thêm đơn cho kỳ đã chọn…");
+  try{ await loadAll(); buildNav(); }catch(e){ S.loadFrom=null; fail(e); }
+}
+async function setPeriod(m){ S.period.mode=m; S.page=1; await ensurePeriodLoaded(); go(S.view); }
 function wirePeriod(){
   const f=$("#pFrom"), t=$("#pTo");
-  if(f) f.onchange=e=>{ S.period.mode="custom"; S.period.from=e.target.value; S.page=1; go(S.view); };
-  if(t) t.onchange=e=>{ S.period.mode="custom"; S.period.to=e.target.value; S.page=1; go(S.view); };
+  if(f) f.onchange=async e=>{ S.period.mode="custom"; S.period.from=e.target.value; S.page=1; await ensurePeriodLoaded(); go(S.view); };
+  if(t) t.onchange=async e=>{ S.period.mode="custom"; S.period.to=e.target.value; S.page=1; await ensurePeriodLoaded(); go(S.view); };
 }
 /* ---- Ẩn/hiện cột bảng Đơn hàng (nhớ trên máy) ---- */
 function driveId(u){ if(!u) return ""; const m=String(u).match(/\/d\/([-\w]{20,})/)||String(u).match(/[?&]id=([-\w]{20,})/); return m?m[1]:""; }
@@ -1186,12 +1226,13 @@ function renderOrders(){
   <div class="card mb" style="border-left:3px solid ${S.fullLoaded?"#16a34a":"#f59e0b"}"><div class="flex" style="justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:center">
     <span class="small">${S.fullLoaded
       ? `📜 Đang xem <b>TOÀN BỘ lịch sử</b> (gồm cả đơn đã đóng sổ) — tool sẽ nặng hơn.`
-      : `⚡ Đang tải nhanh: chỉ <b>đơn từ ${fmtD(loadCutoff())}</b> trở lại đây và đơn <b>chưa đóng sổ</b>. Đơn cũ hơn vẫn còn nguyên trong hệ thống. Xuất Excel chỉ gồm phần đang xem.`}</span>
+      : `⚡ Đang xem <b>đơn từ ${fmtD(loadedFrom())}</b> trở lại đây${S.loadFrom?" (đã tải thêm theo kỳ bạn chọn, gồm cả đơn đã đóng sổ)":" và đơn <b>chưa đóng sổ</b>"}. Chọn kỳ rộng hơn ở trên thì tool <b>tự tải thêm</b>. Tìm đơn cũ: gõ mã rồi bấm <b>🔎 Tìm đơn cũ</b>.`}</span>
     <button class="btn btn-sm" onclick="${S.fullLoaded?"quickMode()":"loadFullHistory()"}">${S.fullLoaded?"⚡ Về chế độ nhanh":"📜 Tải toàn bộ lịch sử"}</button></div></div>
   ${S.showNew?`<div class="card mb" style="border:2px solid #0284c7"><div class="spread mb"><div><h3 style="margin:0">＋ Thêm đơn mới</h3><span class="small muted">Nhập ở đây · <b>Ctrl+D</b> chép ô trên xuống · dán cả cột từ Excel bằng <b>Ctrl+V</b> · copy từ danh sách dưới nếu cần</span></div><div class="flex"><button class="btn" onclick="importTTS()">📥 Nạp Excel TTS</button><button class="btn" onclick="pasteImport()">📋 Dán tay</button><button class="btn btn-p" onclick="saveNewRows()">💾 Lưu tất cả</button><button class="btn btn-sm" onclick="toggleNewPanel()">Thu gọn ▲</button></div></div>${newSheetHTML()}</div>`:""}
   <div class="card mb"><div class="flex">
     <input id="fQ" placeholder="🔍 Order ID / khách / note / color / tracking..." style="flex:1;min-width:220px" value="${esc(f.q)}">
     ${f.q?`<button class="btn btn-sm" onclick="S.filters.q='';S.page=1;renderOrders()" title="Xoá ô tìm kiếm">✕</button>`:""}
+    ${(f.q && !S.fullLoaded)?`<button class="btn btn-sm" onclick="searchOldOrders()" title="Tìm cả trong đơn cũ đã đóng sổ (không cần tải toàn bộ)">🔎 Tìm đơn cũ</button>`:""}
     <input id="fSeller" list="dl_fseller" value="${esc(f.seller||'')}" placeholder="Tất cả seller" autocomplete="off" style="min-width:130px"><datalist id="dl_fseller">${sellers.map(s=>`<option value="${esc(s)}">`).join("")}</datalist>
     ${multiTeam()&&teams.length?`<select id="fTeam" style="min-width:110px" title="Lọc theo nhóm seller"><option value="">Tất cả nhóm</option>${teams.map(t=>`<option value="${esc(t)}" ${f.team===t?"selected":""}>${esc(t)}</option>`).join("")}</select>`:""}
     <input id="fFactory" list="dl_ffactory" value="${esc(f.factory&&maps.factory[f.factory]?maps.factory[f.factory].name:'')}" placeholder="Tất cả xưởng" autocomplete="off" style="min-width:150px"><datalist id="dl_ffactory">${S.factories.map(x=>`<option value="${esc(x.name)}">`).join("")}</datalist>
@@ -1272,7 +1313,7 @@ function renderOrders(){
       <td class="oc-currency nowrap">${em&&it?`<select id="g_cost_currency_${it.id}" onchange="gridSave('${it.id}')" ${dF}><option ${it.cost_currency==="USD"?"selected":""}>USD</option><option ${it.cost_currency==="VND"?"selected":""}>VND</option></select>`:esc(it?.cost_currency||"")}</td>
       <td class="oc-img center">${(()=>{ const u=it&&(it.design_link||it.listing_link); if(!u) return ""; return `<span data-u="${esc(u)}" onmouseenter="imgHover(event,this.dataset.u)" onmouseleave="imgHoverOut()" onclick="event.stopPropagation();openImg(this.dataset.u)" title="Rê chuột để xem · bấm để phóng to" style="cursor:pointer;font-size:16px">🖼️</span>`; })()}</td>
       </tr>`;
-    }).join("") || `<tr><td colspan="34" class="muted">Không có dòng nào khớp bộ lọc.</td></tr>`}
+    }).join("") || `<tr><td colspan="34" class="muted">Không có dòng nào khớp bộ lọc.${(!S.fullLoaded && f.q)?` <button class="btn btn-sm btn-p" onclick="searchOldOrders()">🔎 Tìm trong đơn cũ / đã đóng sổ</button>`:""}</td></tr>`}
   </table></div>
   <div class="flex mt small muted" style="gap:18px;flex-wrap:wrap">
     <span>Tổng: <b>${new Set(rows.map(r=>r.o.id)).size}</b> đơn · <b>${rows.length}</b> dòng SP</span>
@@ -2504,7 +2545,7 @@ function renderFinance(){
     ["Ngày TT","Nhà cung cấp","Số tiền","Tiền tệ","Loại","Ngân hàng","Nội dung","Tháng"]);
   if(finTab==="stats"){ Promise.resolve(finStats()).then(()=>{
       if(!S.fullLoaded && $("#finBody")) $("#finBody").insertAdjacentHTML("afterbegin",
-        `<div class="card mb" style="border-left:3px solid #f59e0b"><span class="small">⚡ Chỉ tính trên <b>đơn từ ${fmtD(loadCutoff())}</b> trở lại đây. Cần số liệu dài hạn: bấm <button class="btn btn-sm" onclick="loadFullHistory()">📜 Tải toàn bộ lịch sử</button></span></div>`);
+        `<div class="card mb" style="border-left:3px solid #f59e0b"><span class="small">⚡ Chỉ tính trên <b>đơn từ ${fmtD(loadedFrom())}</b> trở lại đây. Cần số liệu dài hạn: bấm <button class="btn btn-sm" onclick="loadFullHistory()">📜 Tải toàn bộ lịch sử</button></span></div>`);
     }); }
 }
 /* Thống kê tháng — thay sheet "Thống kê" cũ */
@@ -3302,7 +3343,7 @@ async function applyBatch(){
   const keys=raw.map(x=>x.toLowerCase());
   closeModal();
   /* mã có thể thuộc đơn CŨ ngoài phạm vi tải nhanh -> kéo về, tránh báo "không thấy" sai */
-  if(raw.length && !S.fullLoaded){ try{ toast("Đang tra cứu mã…"); await ensureOrdersLoaded(raw); }catch(e){} }
+  if(raw.length && !S.fullLoaded){ try{ toast("Đang tra cứu mã…"); await ensureOrdersLoaded(raw, true); }catch(e){} }
   S.filters.batch = keys.length? new Set(keys) : null;
   S.page=1; renderOrders();
 }
