@@ -210,7 +210,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.64</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.72</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -239,7 +239,7 @@ const S = {
   orders: [], items: [],           // dữ liệu chính
   balances: [],                    // v_factory_balance
   rows: [],                        // item-per-row đã join (bảng đơn hàng)
-  page: 1, perPage: 100,
+  page: 1, perPage: 100, fullLoaded: false,
   filters: { q:"", seller:"", factory:"", status:"", multi:false, special:"", dateFrom:"", dateTo:"", account:"", sort:"created", sortDir:"desc", batch:null },
   view: "dash",
   period: { mode:"all", from:"", to:"" },   /* bộ lọc thời gian dùng chung */
@@ -270,7 +270,9 @@ const esc = (s)=> s==null ? "" : String(s).replace(/[&<>"']/g, c=>({"&":"&amp;",
 const fmtD = (d)=>{ if(!d) return ""; const t = String(d).slice(0,10).split("-"); return t.length===3 ? `${t[2]}/${t[1]}/${t[0]}` : d; };
 const fmtUSD = (n)=> n==null ? "" : "$"+Number(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
 const fmtMoney = (n,cur)=> n==null ? "" : (cur==="VND" ? Number(n).toLocaleString("vi-VN")+" ₫" : fmtUSD(n));
-const today = ()=> new Date().toISOString().slice(0,10);
+/* Ngày theo giờ VN — PHẢI khớp note_day trong DB (default: now() at time zone Asia/Ho_Chi_Minh).
+   Nếu dùng UTC thì từ 00:00–07:00 giờ VN sẽ lệch 1 ngày -> không gộp được đơn, báo lỗi trùng khoá. */
+const today = ()=> new Date(Date.now() + 7*3600*1000).toISOString().slice(0,10);
 const isFFM = ()=> S.me && (S.me.role==="ffm" || S.me.role==="admin");
 const isAdmin = ()=> S.me && S.me.role==="admin";
 
@@ -300,6 +302,7 @@ async function fetchAll(table, opts={}){
   for(;;){
     let q = db.from(table).select(opts.select || "*").range(from, from+size-1);
     if(opts.order) q = q.order(opts.order, {ascending: opts.asc ?? false});
+    q = q.order("id", {ascending:true});   /* khoá phụ: phân trang không sót/lặp khi > 1000 dòng */
     const { data, error } = await q;
     if(error) throw error;
     out = out.concat(data||[]);
@@ -307,6 +310,80 @@ async function fetchAll(table, opts={}){
     from += size;
   }
   return out;
+}
+/* ===== TẢI THEO LỚP: mặc định chỉ tải đơn gần đây + chưa đóng sổ ===== */
+const LOAD_DAYS = 45;
+function loadCutoff(){ const d=new Date(); d.setDate(d.getDate()-LOAD_DAYS);
+  const z=n=>String(n).padStart(2,"0"); return `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())}`; }
+/* Lấy đơn KÈM sản phẩm trong 1 lượt (ít request hơn hẳn). full=true -> lấy toàn bộ lịch sử. */
+async function fetchOrders(full){
+  const size = 500; let from = 0; const orders = [], items = [], seen = new Set();
+  const cut = loadCutoff();
+  for(;;){
+    let q = db.from("orders").select("*, order_items(*)")
+      .order("order_date",{ascending:false}).order("id",{ascending:true})   /* khoá phụ: phân trang không sót/lặp */
+      .range(from, from+size-1);
+    if(!full) q = q.is("archived_at", null).or(`order_date.gte.${cut},order_date.is.null`);
+    const { data, error } = await q;
+    if(error) throw error;
+    for(const o of (data||[])){ if(seen.has(o.id)) continue; seen.add(o.id);
+      const its = o.order_items || []; delete o.order_items; orders.push(o); items.push(...its); }
+    if(!data || data.length < size) break;
+    from += size;
+  }
+  return { orders, items };
+}
+/* Kéo về bộ nhớ các đơn theo danh sách Order ID (kèm SP) — dùng trước khi Import / lưu đơn,
+   để KHÔNG tạo đơn trùng khi đơn cũ nằm ngoài phạm vi tải nhanh. */
+async function ensureOrdersLoaded(oids){
+  const list=[...new Set((oids||[]).map(x=>String(x||"").trim()).filter(Boolean))];
+  const miss=list.filter(id=>!S.orders.some(o=>o.platform_order_id===id));
+  if(!miss.length) return 0;
+  let got=0;
+  for(let i=0;i<miss.length;i+=150){
+    const chunk=miss.slice(i,i+150);
+    const { data, error } = await db.from("orders").select("*, order_items(*)").in("platform_order_id", chunk);
+    if(error) throw error;
+    for(const o of (data||[])){
+      const its=o.order_items||[]; delete o.order_items;
+      if(!maps.order[o.id]){ S.orders.push(o); maps.order[o.id]=o; got++; }
+      for(const it of its) if(!S.items.some(x=>x.id===it.id)) S.items.push(it);
+    }
+  }
+  if(got) buildRows();
+  return got;
+}
+/* Kéo 1 đơn (kèm SP) khi realtime báo có thay đổi ở đơn chưa tải */
+async function adoptOrder(id, checkScope){
+  if(!id || maps.order[id]) return;
+  window._adopting ||= new Set();
+  if(window._adopting.has(id)) return;                 /* chống bắn nhiều request cho cùng 1 đơn */
+  window._adopting.add(id);
+  let data=null;
+  try{ ({ data } = await db.from("orders").select("*, order_items(*)").eq("id",id).maybeSingle()); }
+  catch(e){ window._adopting.delete(id); return; }
+  if(!data || maps.order[data.id]){ window._adopting.delete(id); return; }
+  if(checkScope && !S.fullLoaded){                     /* đơn ngoài phạm vi -> không kéo về */
+    const inScope = !data.archived_at && (!data.order_date || String(data.order_date) >= loadCutoff());
+    if(!inScope){ return; }                            /* giữ trong _adopting để khỏi hỏi lại */
+  }
+  const its=data.order_items||[]; delete data.order_items;
+  S.orders.push(data); maps.order[data.id]=data;
+  for(const it of its) if(!S.items.some(x=>x.id===it.id)) S.items.push(it);
+  slaCacheClear(); buildRows(); buildNav();
+  clearTimeout(window._adoptT); window._adoptT=setTimeout(()=>{ if(!editingNow()) go(S.view); }, 400);
+}
+async function quickMode(){
+  if(!S.fullLoaded) return;
+  S.fullLoaded = false;
+  try{ await loadAll(); buildNav(); go(S.view); toast("Đã về chế độ nhanh."); }catch(e){ fail(e); }
+}
+async function loadFullHistory(){
+  if(S.fullLoaded) return;
+  toast("Đang tải toàn bộ lịch sử đơn…");
+  S.fullLoaded = true;
+  try{ await loadAll(); buildNav(); go(S.view); toast("Đã tải toàn bộ lịch sử."); }
+  catch(e){ S.fullLoaded=false; fail(e); }
 }
 /* ================= AUTH + BOOT ================= */
 $("#tabLogin").onclick = ()=>{ $("#tabLogin").classList.add("on"); $("#tabReg").classList.remove("on"); $("#formLogin").hidden=false; $("#formReg").hidden=true; };
@@ -386,18 +463,80 @@ async function boot(){
 }
 /* ===== Realtime: 2 người cùng thấy cập nhật (cần bật publication trong Supabase) ===== */
 let _rtCh=null, _rtT=null, _rtPending=false;
-function editingNow(){ const mb=document.getElementById("modalBg"); const modalOpen=mb&&mb.classList.contains("show"); return modalOpen || S.view==="new" || S.view==="sheet" || (S.view==="orders" && S.showNew); }
+function editingNow(){
+  const mb=document.getElementById("modalBg"); const modalOpen=mb&&mb.classList.contains("show");
+  const ae=document.activeElement;
+  /* chỉ coi là "đang nhập liệu" khi con trỏ ở popup / bảng nhập / sửa nhanh —
+     KHÔNG tính các ô lọc & tìm kiếm (nếu tính, màn hình sẽ không bao giờ tự cập nhật) */
+  const typing = ae && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName)
+    && !!(ae.closest && ae.closest("#modalBg, .otbl, .sheet")) ;
+  return modalOpen || typing || S.view==="new" || S.view==="sheet" || S.view==="push"
+      || (S.view==="orders" && S.showNew);
+}
 async function rtRefresh(){ try{ await loadAll(); buildNav(); go(S.view); }catch(e){} }
+/* Áp thay đổi từ realtime vào bộ nhớ TẠI CHỖ (không gọi mạng, không tải lại toàn bộ).
+   Trả về false nếu không xử lý được -> khi đó mới tải lại đầy đủ. */
+function rtApply(tbl, payload){
+  try{
+    const ev  = payload.eventType || payload.type;
+    const rec = (payload.new && Object.keys(payload.new).length) ? payload.new : null;
+    const old = payload.old || null;
+    if(tbl==="orders"){
+      if(ev==="INSERT" || ev==="UPDATE"){
+        if(!rec || !rec.id) return false;
+        const i = S.orders.findIndex(o=>o.id===rec.id);
+        if(i>=0){ Object.assign(S.orders[i], rec); maps.order[rec.id]=S.orders[i]; return true; }
+        /* Đơn chưa có trong bộ nhớ: bỏ qua nếu ngoài phạm vi đang xem (tránh dòng ma "chưa có SP") */
+        if(!S.fullLoaded){
+          const inScope = !rec.archived_at && (!rec.order_date || String(rec.order_date) >= loadCutoff());
+          if(!inScope) return true;
+        }
+        adoptOrder(rec.id);   /* tải kèm SP rồi vẽ lại */
+        return true;
+      }
+      if(ev==="DELETE"){
+        const id = old && old.id; if(!id) return false;
+        S.orders = S.orders.filter(o=>o.id!==id);
+        S.items  = S.items.filter(it=>it.order_id!==id);
+        delete maps.order[id];
+        return true;
+      }
+      return false;
+    }
+    if(tbl==="order_items"){
+      if(ev==="INSERT" || ev==="UPDATE"){
+        if(!rec || !rec.id) return false;
+        const i = S.items.findIndex(x=>x.id===rec.id);
+        if(i>=0) Object.assign(S.items[i], rec); else S.items.push(rec);
+        /* SP thuộc đơn CHƯA tải (đơn cũ) -> kéo đơn đó về để không bỏ sót cập nhật */
+        if(rec.order_id && !maps.order[rec.order_id]) adoptOrder(rec.order_id, true);
+        return true;
+      }
+      if(ev==="DELETE"){
+        const id = old && old.id; if(!id) return false;
+        S.items = S.items.filter(x=>x.id!==id);
+        return true;
+      }
+      return false;
+    }
+  }catch(e){ return false; }
+  return false;
+}
 function realtimeInit(){
   if(_rtCh) return;
-  const hit = ()=>{ clearTimeout(_rtT); _rtT=setTimeout(()=>{
-    if(editingNow()){ if(!_rtPending){ _rtPending=true; toast("🔄 Có cập nhật mới từ người khác — bấm nút Tải lại khi xong."); showReloadChip(); } }
-    else rtRefresh();
-  }, 800); };
+  let _needFull = false;
+  const paint = ()=>{ clearTimeout(_rtT); _rtT=setTimeout(async()=>{
+    if(editingNow()){ if(!_rtPending){ _rtPending=true; toast("🔄 Có cập nhật mới từ người khác — bấm nút Tải lại khi xong."); showReloadChip(); } return; }
+    const _c=document.getElementById("rtChip"); if(_c) _c.remove(); _rtPending=false;
+    if(_needFull){ _needFull=false; await rtRefresh(); return; }
+    slaCacheClear(); buildRows(); buildNav(); go(S.view);   /* vẽ lại từ bộ nhớ, KHÔNG gọi mạng */
+  }, 600); };
+  const onChg = tbl => payload => { if(!rtApply(tbl,payload)) _needFull = true; paint(); };
+  const hit = ()=>{ TASKS=null; if(S.view==="tasks" && !editingNow()) renderTasks(); };   /* chỉ nạp lại Giao việc */
   _rtCh = db.channel("ffm-rt")
-    .on("postgres_changes",{event:"*",schema:"public",table:"orders"}, hit)
-    .on("postgres_changes",{event:"*",schema:"public",table:"order_items"}, hit)
-    .on("postgres_changes",{event:"*",schema:"public",table:"tasks"}, hit)
+    .on("postgres_changes",{event:"*",schema:"public",table:"orders"},      onChg("orders"))
+    .on("postgres_changes",{event:"*",schema:"public",table:"order_items"}, onChg("order_items"))
+    .on("postgres_changes",{event:"*",schema:"public",table:"tasks"},       hit)
     .subscribe();
 }
 function showReloadChip(){
@@ -409,14 +548,13 @@ function showReloadChip(){
 }
 
 async function loadAll(){
-  const [profiles, factories, templates, sellAccs, factAccs, orders, items, balances, grants, factoryForms] = await Promise.all([
+  const [profiles, factories, templates, sellAccs, factAccs, ordersPack, balances, grants, factoryForms] = await Promise.all([
     fetchAll("profiles",{select:"*"}).catch(()=>[]),
     fetchAll("factories",{order:"name",asc:true}),
     fetchAll("templates",{order:"code",asc:true}),
     fetchAll("selling_accounts"),
     fetchAll("factory_accounts").catch(()=>[]),
-    fetchAll("orders",{order:"order_date"}),
-    fetchAll("order_items"),
+    fetchOrders(!!S.fullLoaded),
     db.from("v_factory_balance").select("*").then(r=>{ if(r.error) throw r.error; return r.data; }).catch(()=>[]),
     db.from("care_grants").select("order_id").eq("grantee", S.user.id)
       .gt("expires_at", new Date().toISOString()).then(r=>r.data||[]).catch(()=>[]),
@@ -424,6 +562,7 @@ async function loadAll(){
   ]);
   S.careGrants = new Set(grants.map(g=>g.order_id));
   S.profiles=profiles; S.factories=factories; S.templates=templates;
+  const orders = ordersPack.orders, items = ordersPack.items;
   S.sellAccs=sellAccs; S.factAccs=factAccs; S.orders=orders; S.items=items; S.balances=balances;
   S.factoryForms={}; for(const ff of (factoryForms||[])){ S.factoryForms[ff.factory_id||"_generic"]=ff; }
   maps.profile = Object.fromEntries(profiles.map(p=>[p.id,p]));
@@ -436,19 +575,20 @@ async function loadAll(){
 
 /* item-per-row: mỗi sản phẩm 1 dòng (giữ bố cục Excel) */
 function buildRows(){
+  slaCacheClear();
   const byOrder = {};
   for(const it of S.items){ (byOrder[it.order_id] ||= []).push(it); }
   for(const k in byOrder) byOrder[k].sort((a,b)=>(a.source_line||0)-(b.source_line||0));
   S.rows = [];
   for(const o of S.orders){
-    if(o.archived_at) continue;
+    if(o.archived_at && !S.fullLoaded) continue;
     const its = byOrder[o.id] || [null];
     for(const it of its) S.rows.push({ o, it, multi: (byOrder[o.id]||[]).length>1 });
   }
   /* Phát hiện TRÙNG khách/địa chỉ giữa các ĐƠN KHÁC NHAU (góp ý 7.2) */
   const custMap = {};
   for(const o of S.orders){
-    if(o.archived_at) continue;
+    if(o.archived_at && !S.fullLoaded) continue;
     const key = ((o.customer_name||"")+"|"+(o.customer_address||"")).toLowerCase().replace(/\s+/g," ").trim();
     if(key.length > 10 && o.customer_name) (custMap[key] ||= []).push(o.id);
   }
@@ -459,7 +599,7 @@ function buildRows(){
   /* Cả đơn đủ điều kiện đẩy: MỌI pcs đều có Label + Design + Tracking (gate đơn nhiều pcs) */
   S.orderAllReady = new Set();
   for(const o of S.orders){
-    if(o.archived_at) continue;
+    if(o.archived_at && !S.fullLoaded) continue;
     const its = byOrder[o.id]; if(!its || !its.length) continue;
     if(its.every(x=>{ const c=readyChecks(o,x); return c.label && c.design && c.tracking; })) S.orderAllReady.add(o.id);
   }
@@ -497,9 +637,17 @@ function isReadyToPush(o, it){
   return !!(S.orderAllReady && S.orderAllReady.has(o.id));
 }
 /* SLA: đếm theo GIỜ tới hạn (deadline = 23:59 giờ US Eastern) — góp ý 7.1 */
+const _slaCache = new Map();
+function slaCacheClear(){ _slaCache.clear(); }
 function slaInfo(it){
   if(!it || !it.deadline_ship) return null;
   if(["delivered","synced","cancelled"].includes(it.item_status)) return null;
+  const _ck = it.id+"|"+it.deadline_ship+"|"+it.item_status+"|"+Math.floor(Date.now()/60000);
+  const _hit = _slaCache.get(_ck); if(_hit !== undefined) return _hit;
+  const _r = _slaCalc(it); if(_slaCache.size>8000) _slaCache.clear();
+  _slaCache.set(_ck,_r); return _r;
+}
+function _slaCalc(it){
   const dl = new Date(it.deadline_ship+"T23:59:59-04:00");
   const ms = dl - new Date();
   const hrs = Math.floor(ms/36e5);
@@ -676,6 +824,7 @@ function renderDash(){
     <div class="flex"><button class="btn" onclick="exportOrdersCsv()">⇩ Xuất Excel</button>
     <button class="btn" onclick="reloadData()">↻ Tải lại</button></div></div>
   ${periodBar()}
+  ${S.fullLoaded?"":`<div class="card mb" style="border-left:3px solid #f59e0b"><span class="small">⚡ Số liệu tính trên <b>đơn từ ${fmtD(loadCutoff())}</b> trở lại đây (đơn cũ đã đóng sổ không tính). Xem/xuất báo cáo dài hạn thì bấm <button class="btn btn-sm" onclick="loadFullHistory()">📜 Tải toàn bộ lịch sử</button></span></div>`}
   ${(()=>{
     const nms=[...new Set(S.rows.map(r=>sellerName(r.o)).filter(x=>x&&x!=="—"))].sort();
     const hasNone = S.rows.some(r=>sellerName(r.o)==="—");
@@ -910,7 +1059,7 @@ function filteredRows(){
   });
 }
 function goFilter(patch){
-  S.filters = Object.assign({q:"",seller:"",factory:"",status:"",multi:false,special:"",dateFrom:"",dateTo:"",account:"",sort:"created",sortDir:"desc",batch:null}, patch||{});
+  S.filters = Object.assign({q:"",seller:"",team:"",factory:"",status:"",multi:false,special:"",dateFrom:"",dateTo:"",account:"",sort:"created",sortDir:"desc",batch:null}, patch||{});
   S.page = 1; go("orders");
 }
 function copyText(t){ if(!t) return;
@@ -1034,6 +1183,11 @@ function renderOrders(){
     <p class="sub">${rows.length} dòng SP · ${new Set(rows.map(r=>r.o.id)).size} đơn · <b>bấm vào dòng</b> để xem chi tiết · ✏️ Sửa nhanh để sửa tại chỗ · ⚙ Cột để ẩn/hiện</p></div>
     <div class="flex"><button class="btn btn-p" onclick="toggleNewPanel()">${S.showNew?"✕ Đóng thêm đơn":"＋ Thêm đơn mới"}</button><button class="btn" onclick="exportOrdersCsv()">⇩ Xuất Excel</button></div></div>
   ${periodBar()}
+  <div class="card mb" style="border-left:3px solid ${S.fullLoaded?"#16a34a":"#f59e0b"}"><div class="flex" style="justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:center">
+    <span class="small">${S.fullLoaded
+      ? `📜 Đang xem <b>TOÀN BỘ lịch sử</b> (gồm cả đơn đã đóng sổ) — tool sẽ nặng hơn.`
+      : `⚡ Đang tải nhanh: chỉ <b>đơn từ ${fmtD(loadCutoff())}</b> trở lại đây và đơn <b>chưa đóng sổ</b>. Đơn cũ hơn vẫn còn nguyên trong hệ thống. Xuất Excel chỉ gồm phần đang xem.`}</span>
+    <button class="btn btn-sm" onclick="${S.fullLoaded?"quickMode()":"loadFullHistory()"}">${S.fullLoaded?"⚡ Về chế độ nhanh":"📜 Tải toàn bộ lịch sử"}</button></div></div>
   ${S.showNew?`<div class="card mb" style="border:2px solid #0284c7"><div class="spread mb"><div><h3 style="margin:0">＋ Thêm đơn mới</h3><span class="small muted">Nhập ở đây · <b>Ctrl+D</b> chép ô trên xuống · dán cả cột từ Excel bằng <b>Ctrl+V</b> · copy từ danh sách dưới nếu cần</span></div><div class="flex"><button class="btn" onclick="importTTS()">📥 Nạp Excel TTS</button><button class="btn" onclick="pasteImport()">📋 Dán tay</button><button class="btn btn-p" onclick="saveNewRows()">💾 Lưu tất cả</button><button class="btn btn-sm" onclick="toggleNewPanel()">Thu gọn ▲</button></div></div>${newSheetHTML()}</div>`:""}
   <div class="card mb"><div class="flex">
     <input id="fQ" placeholder="🔍 Order ID / khách / note / color / tracking..." style="flex:1;min-width:220px" value="${esc(f.q)}">
@@ -1043,7 +1197,7 @@ function renderOrders(){
     <input id="fFactory" list="dl_ffactory" value="${esc(f.factory&&maps.factory[f.factory]?maps.factory[f.factory].name:'')}" placeholder="Tất cả xưởng" autocomplete="off" style="min-width:150px"><datalist id="dl_ffactory">${S.factories.map(x=>`<option value="${esc(x.name)}">`).join("")}</datalist>
     <label class="flex" style="margin:0"><input type="checkbox" id="fMulti" ${f.multi?"checked":""} style="width:auto"> Đơn nhiều SP</label>
     <button class="btn btn-sm" onclick="batchLookup()">📋 Dán nhiều mã (đối soát)</button>
-    <button class="btn btn-sm" onclick="S.filters={q:'',seller:'',factory:'',status:'',multi:false,special:'',dateFrom:'',dateTo:'',account:'',sort:'date',sortDir:'desc',batch:null};S.page=1;renderOrders()">Xóa lọc</button>
+    <button class="btn btn-sm" onclick="S.filters={q:'',seller:'',team:'',factory:'',status:'',multi:false,special:'',dateFrom:'',dateTo:'',account:'',sort:'date',sortDir:'desc',batch:null};S.page=1;renderOrders()">Xóa lọc</button>
   </div>
   <div class="flex mt" style="gap:8px;flex-wrap:wrap">
     <input id="fAcc" list="dl_facc" value="${esc(f.account&&maps.sellAcc[f.account]?maps.sellAcc[f.account].name:'')}" placeholder="Tất cả TK bán" autocomplete="off" style="min-width:130px"><datalist id="dl_facc">${S.sellAccs.map(a=>`<option value="${esc(a.name)}">`).join("")}</datalist>
@@ -1053,14 +1207,27 @@ function renderOrders(){
     <button class="btn btn-sm ${S.editMode?'btn-p':''}" onclick="S.editMode=!S.editMode;localStorage.setItem('ffm_editmode',S.editMode?'1':'0');renderOrders()">✏️ Sửa nhanh</button>
   </div></div>
   ${batchBanner}
-  <div class="flex mb" style="gap:6px;flex-wrap:wrap">${(()=>{ const base=f.team?S.rows.filter(r=>teamOf(r.o)===f.team):S.rows; const c=fn=>base.filter(fn).length;
+  <div class="flex mb" style="gap:6px;flex-wrap:wrap">${(()=>{ const base=f.team?S.rows.filter(r=>teamOf(r.o)===f.team):S.rows;
+    /* đếm 6 chỉ số trong MỘT vòng lặp thay vì quét 6 lần */
+    let nAct=0,nLate=0,nReady=0,nLack=0,nIssue=0,nDup=0;
+    for(const r of base){
+      if(S.dupOrders && S.dupOrders.has(r.o.id)) nDup++;   /* tính cả dòng chưa có SP, khớp bộ lọc */
+      const it=r.it; if(!it) continue;
+      const st=it.item_status;
+      if(!["delivered","synced","cancelled"].includes(st)) nAct++;
+      const x=slaInfo(it); if(x && x.diff<0) nLate++;
+      if(isReadyToPush(r.o,it)) nReady++;
+      if(!["ordered","in_production","has_tracking","synced","delivered","cancelled","issue"].includes(st)){
+        const cc=readyChecks(r.o,it); if(!(cc.label&&cc.design&&cc.tracking)) nLack++; }
+      if(st==="issue") nIssue++;
+    }
     const chips=[["","Tất cả",base.length],
-      ["active","⏳ Đang xử lý",c(r=>r.it&&!["delivered","synced","cancelled"].includes(r.it.item_status))],
-      ["late","🔴 Trễ SLA",c(r=>{const x=slaInfo(r.it);return x&&x.diff<0;})],
-      ["ready","🟢 Chờ đẩy xưởng",c(r=>isReadyToPush(r.o,r.it))],
-      ["lack","🟡 Thiếu điều kiện",c(r=>{const cc=r.it?readyChecks(r.o,r.it):null;return r.it&&!["ordered","in_production","has_tracking","synced","delivered","cancelled","issue"].includes(r.it.item_status)&&cc&&!(cc.label&&cc.design&&cc.tracking);})],
-      ["issue","⚠️ Sự cố",c(r=>r.it&&r.it.item_status==="issue")],
-      ["dup","👥 Trùng khách",c(r=>S.dupOrders&&S.dupOrders.has(r.o.id))]];
+      ["active","⏳ Đang xử lý",nAct],
+      ["late","🔴 Trễ SLA",nLate],
+      ["ready","🟢 Chờ đẩy xưởng",nReady],
+      ["lack","🟡 Thiếu điều kiện",nLack],
+      ["issue","⚠️ Sự cố",nIssue],
+      ["dup","👥 Trùng khách",nDup]];
     return chips.map(([k,label,n])=>`<button class="btn btn-sm ${(f.special||"")===k?"btn-p":""}" onclick="S.filters.special='${k}';S.page=1;renderOrders()">${label}${n?` <b>${n}</b>`:""}</button>`).join(""); })()}</div>
   ${(()=>{ const vs=savedViews(); return `<div class="flex mb" style="gap:6px;flex-wrap:wrap;align-items:center"><span class="small muted">Bộ lọc đã lưu:</span>${vs.length?vs.map((v,i)=>`<span class="badge b-blue" style="cursor:pointer" onclick="applyView(${i})">${esc(v.name)} <a onclick="event.stopPropagation();delView(${i})" style="cursor:pointer" title="Xoá">✕</a></span>`).join(""):'<span class="small muted">chưa có</span>'}<button class="btn btn-sm" onclick="saveView()">💾 Lưu lọc hiện tại</button></div>`; })()}
   ${ocStyle()}
@@ -1142,7 +1309,7 @@ function exportOrdersCsv(){
       it?.tracking_number||o.tracking_number||"", it?.tracking_status||"", it?.carrier||"",
       fmtD(it?.pushed_at), fmtD(it?.deadline_ship), it?.fulfillment_cost??"", it?.cost_currency||"",
       o.label_link||"", o.label_fee??"", o.seller_note||"", it?STATUS_VI[it.item_status]:"" ]; }));
-  toast("Đã xuất "+rows.length+" dòng.");
+  toast("Đã xuất "+rows.length+" dòng."+(S.fullLoaded?"":" (chỉ phần đang xem — bấm 📜 Tải toàn bộ lịch sử nếu cần đủ)"));
 }
 
 /* ============ FORM EXPORT THEO XƯỞNG ============ */
@@ -1498,7 +1665,9 @@ async function saveItemSeller(id){
   };
   const { error } = await db.from("order_items").update(patch).eq("id", id);
   if(error) return fail(error);
-  const it = S.items.find(x=>x.id===id); Object.assign(it, patch); buildRows(); toast("Đã lưu phần Seller."); closeModal(); go(S.view);
+  const it = S.items.find(x=>x.id===id);
+  if(!it) return toast("Không thấy sản phẩm này (có thể vừa bị xoá) — bấm Tải lại giúp mình.", true);
+  Object.assign(it, patch); buildRows(); toast("Đã lưu phần Seller."); closeModal(); go(S.view);
 }
 async function saveItemFFM(id){
   const patch = {
@@ -1513,7 +1682,9 @@ async function saveItemFFM(id){
   };
   const { error } = await db.from("order_items").update(patch).eq("id", id);
   if(error) return fail(error);
-  const it = S.items.find(x=>x.id===id); Object.assign(it, patch);
+  const it = S.items.find(x=>x.id===id);
+  if(!it) return toast("Không thấy sản phẩm này (có thể vừa bị xoá) — bấm Tải lại giúp mình.", true);
+  Object.assign(it, patch);
   const _o = maps.order[it.order_id];
   if(_o) await syncItemTracking(it, _o);
   buildRows(); toast("Đã lưu phần FFM."); closeModal(); go(S.view);
@@ -1614,7 +1785,7 @@ function copyCell(i,k){
   copyText(v); toast("Đã copy — dán (Ctrl+V) vào ô bất kỳ.");
 }
 function copyColDown(i){ const p=NR[i]; if(!p)return; for(let j=i+1;j<NR.length;j++){ if(!NR[j].order_id.trim()) continue; NR[j].date=p.date;NR[j].acc=p.acc;NR[j].accname=p.accname;NR[j].tmpl=p.tmpl;NR[j].tmplname=p.tmplname;NR[j].ptype=p.ptype;NR[j].fact=p.fact;NR[j].dim=p.dim; } rerenderNewHost(); toast("Đã chép xuống các dòng dưới."); }
-function dupBadge(oid){ oid=(oid||"").trim(); if(!oid)return ""; return S.orders.some(o=>o.platform_order_id===oid)?' <span class="badge b-yellow" title="Order ID đã có. Cùng tracking + cùng ngày note -> gộp vào đơn cũ; khác tracking hoặc khác ngày -> tạo đơn riêng.">đã có</span>':""; }
+function dupBadge(oid){ oid=(oid||"").trim(); if(!oid)return ""; return S.orders.some(o=>o.platform_order_id===oid)?' <span class="badge b-yellow" title="Order ID đã có trong phần đang xem. Khi bấm Lưu, tool còn tự đối chiếu cả đơn cũ trong hệ thống: cùng tracking + cùng ngày note -> gộp; khác -> tạo đơn riêng.">đã có</span>':""; }
 function custPreview(v){ if(!v||!v.trim())return ""; const c=splitCustomer(v); const a=[c.name?"👤"+c.name:"",c.phone?"📞"+c.phone:"",c.address?"📍"+c.address:""].filter(Boolean); return a.length?esc(a.join(" · ")):'<span class="sla-red">chưa tách được — sửa lại</span>'; }
 /* Tách "Customer Info" gộp 1 ô (giống Excel) -> name / phone / address */
 function splitCustomer(raw){
@@ -2145,10 +2316,16 @@ function parseCotikJS(rowsRaw){
 }
 async function runImport(){
   if(!IMP) return;
+  if(window._importing) return toast("Đang nạp, vui lòng đợi…", true);
+  window._importing = true;
+  const SNAP = IMP;                                   /* chốt dữ liệu file, tránh bị đổi giữa chừng */
   const btnHtml = $("#impPreview").innerHTML;
-  $("#impPreview").innerHTML += `<p class="muted">Đang nạp, vui lòng đợi…</p>`;
-  const src = IMP.source || "cotik";
+  $("#impPreview").innerHTML = `<p class="muted">Đang nạp, vui lòng đợi…</p>`;
+  const src = SNAP.source || "cotik";
   try{
+    /* BẮT BUỘC: kéo về các đơn cũ trùng mã trong file (có thể ngoài phạm vi tải nhanh),
+       nếu không sẽ tạo ĐƠN TRÙNG. */
+    await ensureOrdersLoaded((SNAP.orders||[]).map(o=>o.platform_order_id));
     /* map TK bán: tạo thiếu (seller thường không có quyền -> bỏ qua, đơn vẫn nạp được) */
     const accByName = {}; S.sellAccs.forEach(a=>accByName[a.name]=a);
     const needAcc = [...new Set(IMP.orders.map(o=>o.selling_account_name).filter(n=>n && !accByName[n]))];
@@ -2211,7 +2388,17 @@ async function runImport(){
     }
     for(let i=0; i<newOrders.length; i+=200){
       const chunk = newOrders.slice(i,i+200);
-      const { data, error } = await db.from("orders").insert(chunk).select();
+      let { data, error } = await db.from("orders").insert(chunk).select();
+      if(error && (error.code==="23505" || /duplicate key/i.test(error.message||""))){
+        /* có đơn trùng do người khác vừa tạo -> nạp từng đơn, bỏ qua đơn đã tồn tại */
+        data=[];
+        for(const one of chunk){
+          const r = await db.from("orders").insert(one).select().single();
+          if(r.error){ if(r.error.code==="23505"){ skipped++; continue; } throw r.error; }
+          data.push(r.data);
+        }
+        error=null;
+      }
       if(error) throw error;
       created += data.length;
       const byPid = {}; data.forEach(o=>{ byPid[o.platform_order_id]=o; S.orders.push(o); maps.order[o.id]=o; });
@@ -2239,6 +2426,7 @@ async function runImport(){
     toast(`Import xong: ${created} đơn mới (${itemsAdded} SP), ${updated} đơn cập nhật${skipped?`, ${skipped} đơn bỏ qua (ngoài quyền)`:""}.`);
     IMP=null; IMP_WB=null; go("orders");
   }catch(e){ $("#impPreview").innerHTML = btnHtml; fail(e); }
+  finally{ window._importing = false; }
 }
 
 /* ================= ĐẨY XƯỞNG (batch) ================= */
@@ -2314,7 +2502,10 @@ function renderFinance(){
     ["Ngày gửi","Ngày nhận","Xưởng","Số tiền","Tiền tệ","TK nhận","Ngân hàng","Note"]);
   if(finTab==="payments") finTable("payments", ["paid_date","supplier","amount","currency","category","bank","content_note","month_label"],
     ["Ngày TT","Nhà cung cấp","Số tiền","Tiền tệ","Loại","Ngân hàng","Nội dung","Tháng"]);
-  if(finTab==="stats") finStats();
+  if(finTab==="stats"){ Promise.resolve(finStats()).then(()=>{
+      if(!S.fullLoaded && $("#finBody")) $("#finBody").insertAdjacentHTML("afterbegin",
+        `<div class="card mb" style="border-left:3px solid #f59e0b"><span class="small">⚡ Chỉ tính trên <b>đơn từ ${fmtD(loadCutoff())}</b> trở lại đây. Cần số liệu dài hạn: bấm <button class="btn btn-sm" onclick="loadFullHistory()">📜 Tải toàn bộ lịch sử</button></span></div>`);
+    }); }
 }
 /* Thống kê tháng — thay sheet "Thống kê" cũ */
 async function finStats(){
@@ -2604,7 +2795,9 @@ async function mergeSellAcc(fromId){
   const toId = $("#cf_mergeto") ? $("#cf_mergeto").value : "";
   if(!toId){ toast("Chọn TK đích để gộp vào.",true); return; }
   const from = S.sellAccs.find(a=>a.id===fromId), to = S.sellAccs.find(a=>a.id===toId);
-  const n = S.orders.filter(o=>o.selling_account_id===fromId).length;
+  let n = S.orders.filter(o=>o.selling_account_id===fromId).length;
+  try{ const { count } = await db.from("orders").select("id",{count:"exact",head:true}).eq("selling_account_id",fromId);
+       if(typeof count==="number") n=count; }catch(e){}
   if(!confirm(`Gộp "${from?from.name:''}" → "${to?to.name:''}"?\n\n• ${n} đơn sẽ chuyển sang "${to?to.name:''}".\n• TK "${from?from.name:''}" bị xoá.\nKhông hoàn tác.`)) return;
   try{
     const { error:e1 } = await db.from("orders").update({ selling_account_id: toId }).eq("selling_account_id", fromId); if(e1) throw e1;
@@ -2678,7 +2871,8 @@ async function taskSave(){
   if(!title) return toast("Nhập tiêu đề.", true);
   const oid = $("#tk_oid").value.trim();
   let order_id = null;
-  if(oid){ const o = S.orders.find(x=>x.platform_order_id===oid);
+  if(oid){ let o = S.orders.find(x=>x.platform_order_id===oid);
+    if(!o){ const { data } = await db.from("orders").select("id").eq("platform_order_id",oid).limit(1); o = (data||[])[0]; }
     if(!o) return toast("Không tìm thấy Order ID này trong hệ thống.", true); order_id = o.id; }
   const { data, error } = await db.from("tasks").insert({ title, type:$("#tk_type").value,
     assignee_id:$("#tk_who").value||null, order_id,
@@ -2690,22 +2884,48 @@ async function taskSave(){
 async function taskStatus(id, status){
   const { error } = await db.from("tasks").update({ status }).eq("id", id);
   if(error) return fail(error);
-  const t = TASKS.find(x=>x.id===id); if(t) t.status = status; drawTasks();
+  const t = (TASKS||[]).find(x=>x.id===id); if(t) t.status = status; drawTasks();
 }
 async function taskDel(id){
   if(!confirm("Xoá việc này?")) return;
   const { error } = await db.from("tasks").delete().eq("id", id);
   if(error) return fail(error);
-  TASKS = TASKS.filter(x=>x.id!==id); drawTasks();
+  TASKS = (TASKS||[]).filter(x=>x.id!==id); drawTasks();
 }
 
 /* ================= PHÂN QUYỀN (admin) ================= */
+let SELLER_LABELS = null, SELLER_LABELS_P = null;
+async function loadSellerLabels(){
+  if(SELLER_LABELS) return SELLER_LABELS;
+  if(SELLER_LABELS_P) return SELLER_LABELS_P;         /* đang tải -> dùng chung, không bắn thêm request */
+  SELLER_LABELS_P = (async()=>{
+  const m={};
+  try{
+    const size=1000; let from=0;
+    for(;;){
+      const { data, error } = await db.from("orders").select("seller_name_import,seller_id")
+        .not("seller_name_import","is",null).order("id",{ascending:true}).range(from,from+size-1);
+      if(error) throw error;
+      for(const o of (data||[])){ const k=o.seller_name_import; if(!k) continue;
+        if(!(k in m)) m[k]=0; if(!o.seller_id) m[k]++; }
+      if(!data || data.length<size) break; from+=size;
+    }
+  }catch(e){ /* lỗi -> dùng tạm dữ liệu đang có trong bộ nhớ */
+    for(const o of S.orders){ const k=o.seller_name_import; if(!k) continue;
+      if(!(k in m)) m[k]=0; if(!o.seller_id) m[k]++; }
+  }
+  SELLER_LABELS=m; SELLER_LABELS_P=null; return m;
+  })();
+  return SELLER_LABELS_P;
+}
 function renderUsers(){
   const pend = S.profiles.filter(p=>!p.approved);
   const ok = S.profiles.filter(p=>p.approved);
   /* Đếm số đơn CHƯA gán theo tên seller cũ -> seller thật (nhiều đơn) lên đầu, rác (0 đơn) xuống cuối */
   const labelCount = {};
-  for(const o of S.orders){ if(!o.seller_name_import) continue; if(!(o.seller_name_import in labelCount)) labelCount[o.seller_name_import]=0; if(!o.seller_id) labelCount[o.seller_name_import]++; }
+  if(SELLER_LABELS) Object.assign(labelCount, SELLER_LABELS);
+  else { for(const o of S.orders){ if(!o.seller_name_import) continue; if(!(o.seller_name_import in labelCount)) labelCount[o.seller_name_import]=0; if(!o.seller_id) labelCount[o.seller_name_import]++; }
+         loadSellerLabels().then(()=>{ if(S.view==="users") renderUsers(); }); }
   const labels = Object.keys(labelCount).sort((a,b)=>labelCount[b]-labelCount[a] || a.localeCompare(b));
   const scopeSel = (id,k,v)=>`<select id="${id}_${k}">${["none","own","team","all"].map(s=>`<option value="${s}" ${v===s?"selected":""}>${SCOPE_VI[s]}</option>`).join("")}</select>`;
   const teamInp = (id,v)=>`<input id="${id}_team" value="${esc(v||"")}" style="width:64px" placeholder="A/B…" title="Nhóm (để trống = không nhóm). Cần khi Xem=Nhóm.">`;
@@ -2753,6 +2973,7 @@ async function approveUser(id){
     const { data, error:e2 } = await db.rpc("claim_seller_orders", { p_user:id, p_label:f.seller_label });
     if(e2) fail(e2); else claimed = data||0;
   }
+  if(claimed) SELLER_LABELS=null;
   toast(`Đã duyệt.${claimed?` Gán ${claimed} đơn cũ của "${f.seller_label}".`:""}`);
   await reloadData();
 }
@@ -2767,6 +2988,7 @@ async function saveUser(id){
     claimed = data||0;
   }
   Object.assign(p, f);
+  if(claimed) SELLER_LABELS=null;
   toast(`Đã lưu.${claimed?` Gán thêm ${claimed} đơn cũ.`:""}`);
 }
 async function delUser(id){
@@ -2787,7 +3009,7 @@ async function delUser(id){
 async function lockUser(id, active){
   const { error } = await db.from("profiles").update({ active }).eq("id", id);
   if(error) return fail(error);
-  S.profiles.find(x=>x.id===id).active = active;
+  const _p=S.profiles.find(x=>x.id===id); if(_p) _p.active = active;
   toast(active?"Đã mở khoá.":"Đã khoá."); renderUsers();
 }
 
@@ -3075,10 +3297,14 @@ function batchLookup(){
   <textarea id="batchBox" rows="7" style="width:100%;font-family:monospace;font-size:12px" placeholder="Mỗi dòng 1 mã..."></textarea>
   <div class="flex mt"><button class="btn btn-p" onclick="applyBatch()">Đối soát</button><button class="btn" onclick="closeModal()">Hủy</button></div>`);
 }
-function applyBatch(){
-  const keys=($("#batchBox").value||"").split(/\r?\n|[,;\t]+/).map(x=>x.trim().toLowerCase()).filter(Boolean);
+async function applyBatch(){
+  const raw=($("#batchBox").value||"").split(/\r?\n|[,;\t]+/).map(x=>x.trim()).filter(Boolean);
+  const keys=raw.map(x=>x.toLowerCase());
+  closeModal();
+  /* mã có thể thuộc đơn CŨ ngoài phạm vi tải nhanh -> kéo về, tránh báo "không thấy" sai */
+  if(raw.length && !S.fullLoaded){ try{ toast("Đang tra cứu mã…"); await ensureOrdersLoaded(raw); }catch(e){} }
   S.filters.batch = keys.length? new Set(keys) : null;
-  S.page=1; closeModal(); renderOrders();
+  S.page=1; renderOrders();
 }
 function renderProfile(){
   const p = S.me;
