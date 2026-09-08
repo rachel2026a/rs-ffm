@@ -210,7 +210,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.82</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.83</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -912,7 +912,7 @@ function renderDash(){
 
   $("#view").innerHTML = `
   <div class="spread mb"><div><h1>Tổng quan</h1><p class="sub">Xin chào ${esc(S.me.full_name)} 👋 · ${fmtD(today())}</p></div>
-    <div class="flex"><button class="btn" onclick="exportOrdersCsv()">⇩ Xuất Excel</button>
+    <div class="flex"><button class="btn" onclick="exportOrdersCsv()" title="Xuất .xlsx — Order ID / Tracking giữ nguyên, không bị 5.78E+17">⇩ Xuất Excel (.xlsx)</button>
     <button class="btn" onclick="reloadData()">↻ Tải lại</button></div></div>
   ${periodBar()}
   ${S.fullLoaded?"":`<div class="card mb" style="border-left:3px solid #f59e0b"><span class="small">⚡ Số liệu tính trên <b>đơn từ ${fmtD(loadedFrom())}</b> trở lại đây. Chọn kỳ rộng hơn (Tháng này / Năm nay / Tùy chọn) thì tool <b>tự tải thêm cho khớp kỳ</b>. Hoặc bấm <button class="btn btn-sm" onclick="loadFullHistory()">📜 Tải toàn bộ lịch sử</button></span></div>`}
@@ -1292,7 +1292,7 @@ function renderOrders(){
   $("#view").innerHTML = `
   <div class="spread mb"><div><h1>Đơn hàng</h1>
     <p class="sub">${rows.length} dòng SP · ${new Set(rows.map(r=>r.o.id)).size} đơn · <b>bấm vào dòng</b> để xem chi tiết · ✏️ Sửa nhanh để sửa tại chỗ · ⚙ Cột để ẩn/hiện</p></div>
-    <div class="flex"><button class="btn btn-p" onclick="toggleNewPanel()">${S.showNew?"✕ Đóng thêm đơn":"＋ Thêm đơn mới"}</button><button class="btn" onclick="exportOrdersCsv()">⇩ Xuất Excel</button></div></div>
+    <div class="flex"><button class="btn btn-p" onclick="toggleNewPanel()">${S.showNew?"✕ Đóng thêm đơn":"＋ Thêm đơn mới"}</button><button class="btn" onclick="exportOrdersCsv()" title="Xuất .xlsx — Order ID / Tracking giữ nguyên, không bị 5.78E+17">⇩ Xuất Excel (.xlsx)</button></div></div>
   ${periodBar()}
   <div class="card mb" style="border-left:3px solid ${S.fullLoaded?"#16a34a":"#f59e0b"}"><div class="flex" style="justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:center">
     <span class="small">${S.fullLoaded
@@ -2619,7 +2619,7 @@ function renderPush(){
     return `<div class="card mb"><div class="spread mb">
       <h3>🏭 ${esc(fname)} — ${rs.length} SP ${bal?`· số dư <b class="${Number(bal.balance_usd)<0?"sla-red":"sla-green"}">${fmtUSD(bal.balance_usd)}</b>`:""}</h3>
       <div class="flex">
-        <button class="btn btn-sm" onclick="pushCsv('${fid}')">⇩ Xuất CSV batch</button>
+        <button class="btn btn-sm" onclick="pushCsv('${fid}')" title="Xuất danh sách đã chọn ra Excel (.xlsx) — giữ nguyên Order ID / Tracking">⇩ Xuất batch (.xlsx)</button>
         ${fid!=="none"?`<button class="btn btn-sm" onclick="exportFactoryForm('${fid}')" title="Xuất .xlsx theo form của xưởng này">⇩ Form xưởng (.xlsx)</button>`:""}
         ${fid!=="none"?`<button class="btn btn-p btn-sm" onclick="markPushed('${fid}')">✔ Đánh dấu đã đẩy (chọn)</button>`:""}
       </div></div>
@@ -2636,7 +2636,7 @@ function renderPush(){
       </table></div></div>`;
   }).join("") || `<div class="card">Không có sản phẩm nào chờ đẩy xưởng 🎉</div>`}`;
 }
-function pushCsv(fid){
+function pushXlsx(fid){
   const ids = $$(".pk_"+CSS.escape(fid)).filter(c=>c.checked).map(c=>c.value);
   const rs = S.rows.filter(r=>r.it && ids.includes(r.it.id));
   if(!rs.length) return toast("Chưa chọn dòng nào.", true);
@@ -2648,6 +2648,7 @@ function pushCsv(fid){
       r.it.design_link||"", r.it.dimension||"", r.o.label_link||"", r.it.tracking_number||r.o.tracking_number||"", r.o.seller_note||""]));
   toast(`Đã xuất batch ${rs.length} SP cho ${fname}.`);
 }
+const pushCsv = pushXlsx;   /* tên cũ, giữ để không vỡ chỗ gọi khác */
 async function markPushed(fid){
   const ids = $$(".pk_"+CSS.escape(fid)).filter(c=>c.checked).map(c=>c.value);
   if(!ids.length) return toast("Chưa chọn dòng nào.", true);
