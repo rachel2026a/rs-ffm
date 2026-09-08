@@ -210,7 +210,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.81</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.82</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -287,6 +287,50 @@ function openModal(html){ $("#modalBox").innerHTML = html; $("#modalBg").classLi
 function closeModal(){ $("#modalBg").classList.remove("show"); $("#modalBox").innerHTML=""; }
 /* Bỏ đóng popup khi bấm nền ngoài — tránh miss-click mất phần đang sửa. Chỉ đóng bằng ✕ / Lưu / Hủy. */
 
+/* Xuất .xlsx (giữ nguyên định dạng). Cột nào là MÃ (Order ID, Tracking, SKU, Order FFM…)
+   thì ép kiểu chữ + format "@" để Excel KHÔNG tự đổi thành 5.78E+17. */
+const TEXTCOL_RE = /order id|order ffm|tracking|sku|mã|zip|post|phone|sđt|barcode|gtin|upc/i;
+function xlsxDownload(filename, header, rows, sheetName){
+  if(typeof XLSX==="undefined"){   /* chưa tải được thư viện -> vẫn xuất CSV để không kẹt việc */
+    return csvDownload(filename.replace(/\.xlsx$/i,".csv"), header, rows);
+  }
+  const textCol = header.map(h=>TEXTCOL_RE.test(String(h||"")));
+  const aoa = [header.map(h=>String(h==null?"":h))];
+  for(const r of rows){
+    aoa.push(r.map((v,i)=>{
+      if(v==null || v==="") return "";
+      if(textCol[i]) return String(v);                       /* mã -> luôn là chữ */
+      if(typeof v==="number") return v;
+      const t=String(v);
+      /* chuỗi toàn số dài (>=12 ký tự) cũng giữ dạng chữ, tránh mất số cuối */
+      if(/^\d{12,}$/.test(t)) return t;
+      return t;
+    }));
+  }
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  /* đặt format "@" (text) cho các ô mã + set độ rộng cột cho dễ đọc */
+  const range = XLSX.utils.decode_range(ws["!ref"]);
+  for(let C=range.s.c; C<=range.e.c; C++){
+    for(let R=1; R<=range.e.r; R++){
+      const cell = ws[XLSX.utils.encode_cell({r:R,c:C})];
+      if(!cell) continue;
+      if(textCol[C] || (cell.t==="s" && /^\d{12,}$/.test(cell.v))){ cell.t="s"; cell.z="@"; }
+    }
+  }
+  ws["!cols"] = header.map((h,i)=>{
+    let w = String(h||"").length + 2;
+    for(let R=1; R<=Math.min(range.e.r, 300); R++){
+      const c = ws[XLSX.utils.encode_cell({r:R,c:i})];
+      if(c && c.v!=null) w = Math.max(w, String(c.v).length + 2);
+    }
+    return { wch: Math.min(Math.max(w, 8), 42) };
+  });
+  ws["!autofilter"] = { ref: XLSX.utils.encode_range({ s:{r:0,c:0}, e:{r:0,c:range.e.c} }) };
+  ws["!freeze"] = { xSplit:0, ySplit:1 };
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, (sheetName||"Data").slice(0,31));
+  XLSX.writeFile(wb, filename);
+}
 function csvDownload(filename, header, rows){
   const q = (v)=>{ v = v==null? "" : String(v); return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; };
   const csv = "﻿" + [header.map(q).join(","), ...rows.map(r=>r.map(q).join(","))].join("\r\n");
@@ -1371,7 +1415,7 @@ function renderOrders(){
 function exportOrdersCsv(){
   const rows = sortRows(filteredRows());   /* đúng thứ tự đang hiển thị */
   const confTxt = it=> it ? (it.factory_design?"Xưởng design":it.needs_fix?"Need Fix":it.confirm_design?"Done":"") : "";
-  csvDownload(`don-hang_${today()}.csv`,
+  xlsxDownload(`don-hang_${today()}.xlsx`,
     ["Ngày","Order ID","Platform","TK bán","Seller","Nhóm","Khách","SĐT","Địa chỉ","Sản phẩm","Product Type","Dimension","SKU","Link SP","Link SP sau","Size","Color","SL","Link Design","Link Design sau","Confirm","Order Design","Note SP","Xưởng","Order FFM","Tracking","Track status","Carrier","Ngày đẩy","Deadline","Chi phí","Tiền tệ","Link Label","Phí Label","Note đơn","Trạng thái"],
     rows.map(r=>{ const {o,it}=r; return [
       fmtD(o.order_date), o.platform_order_id, o.platform||"",
@@ -1383,7 +1427,7 @@ function exportOrdersCsv(){
       it?.tracking_number||o.tracking_number||"", it?.tracking_status||"", it?.carrier||"",
       fmtD(it?.pushed_at), fmtD(it?.deadline_ship), it?.fulfillment_cost??"", it?.cost_currency||"",
       o.label_link||"", o.label_fee??"", o.seller_note||"", it?STATUS_VI[it.item_status]:"" ]; }));
-  toast("Đã xuất "+rows.length+" dòng."+(S.fullLoaded?"":" (chỉ phần đang xem — bấm 📜 Tải toàn bộ lịch sử nếu cần đủ)"));
+  toast("Đã xuất "+rows.length+" dòng (.xlsx)."+(S.fullLoaded?"":" Chỉ phần đang xem — bấm 📜 Tải toàn bộ lịch sử nếu cần đủ."));
 }
 
 /* ============ FORM EXPORT THEO XƯỞNG ============ */
@@ -2597,7 +2641,7 @@ function pushCsv(fid){
   const rs = S.rows.filter(r=>r.it && ids.includes(r.it.id));
   if(!rs.length) return toast("Chưa chọn dòng nào.", true);
   const fname = fid==="none" ? "chua-gan-xuong" : (maps.factory[fid]?.name||"xuong");
-  csvDownload(`batch_${fname}_${today()}.csv`,
+  xlsxDownload(`batch_${fname}_${today()}.xlsx`,
     ["Order ID","Customer Name","Phone","Address","Product","Product Type","Size","Color","Qty","Design Link","Dimension","Label","Tracking","Note"],
     rs.map(r=>[r.o.platform_order_id, r.o.customer_name||"", r.o.customer_contact||"", r.o.customer_address||"",
       r.it.product_title||itemLabel(r.it), r.it.product_type||"", r.it.size||"", r.it.color||"", r.it.quantity,
