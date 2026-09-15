@@ -210,7 +210,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.84</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.86</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -1359,7 +1359,7 @@ function renderOrders(){
       <td onclick="event.stopPropagation()" style="text-align:center">${it?`<input type="checkbox" class="rsel" data-id="${it.id}" ${S.sel&&S.sel.has(it.id)?"checked":""} onclick="toggleSel('${it.id}',this.checked)">`:""}</td>
       <td class="oc-date nowrap">${em&&it?`<input type="date" id="g_order_date_${it.id}" value="${o.order_date||''}" onchange="gridSave('${it.id}')" ${dS}>`:fmtD(o.order_date)}</td>
       <td class="oc-oid nowrap"><a href="#" onclick="openOrder('${o.id}');return false">${esc(o.platform_order_id)}</a> <span class="cpy" data-copy="${esc(o.platform_order_id)}" title="Copy Order ID" style="cursor:pointer">📋</span> <a href="#" onclick="openOrder('${o.id}');return false" title="Mở & sửa/cập nhật đơn" style="text-decoration:none">✏️</a>${r.multi?' <span class="badge b-purple" title="Đơn nhiều sản phẩm">⧉</span>':""}${S.dupOrders&&S.dupOrders.has(o.id)?' <span class="badge b-yellow" title="Trùng tên/địa chỉ khách với đơn khác">👥</span>':""}</td>
-      <td class="oc-acc nowrap">${esc(o.selling_account_id && maps.sellAcc[o.selling_account_id]?.name || "")}</td>
+      <td class="oc-acc nowrap">${em&&it?`<select id="g_selling_account_id_${it.id}" onchange="gridSave('${it.id}')" ${dS} style="max-width:130px"><option value="">—</option>${S.sellAccs.filter(a=>a.active!==false||a.id===o.selling_account_id).map(a=>`<option value="${a.id}" ${o.selling_account_id===a.id?"selected":""}>${esc(a.name)}</option>`).join("")}</select>`:esc(o.selling_account_id && maps.sellAcc[o.selling_account_id]?.name || "")}</td>
       <td class="oc-seller nowrap">${esc(sellerName(o))}</td>
       <td class="oc-team nowrap">${esc(teamOf(o))}</td>
       <td class="oc-label nowrap">${em&&it?`<input id="g_label_link_${it.id}" value="${esc(o.label_link||'')}" onchange="gridSave('${it.id}')" ${dS} style="width:110px">`:(o.label_link?`<a href="${esc(o.label_link)}" target="_blank" onclick="event.stopPropagation()">🔗</a>`:"")}</td>
@@ -3358,6 +3358,38 @@ function openCellEditor(itemId, field, label){
     <button class="btn" onclick="copyText($('#cellEd').value)">📋 Copy</button>
     <button class="btn" onclick="closeModal()">Đóng</button></div>`);
 }
+/* Tách 1 sản phẩm ra ĐƠN MỚI (cùng Order ID, khác TK bán) — dùng khi 2 shop trùng Order ID
+   bị gộp nhầm thành 1 đơn. Copy toàn bộ thông tin đơn gốc, chỉ đổi TK bán + Sàn. */
+async function splitItemToNewOrder(itemId, accId){
+  const it = S.items.find(x=>x.id===itemId); if(!it) return toast("Không thấy sản phẩm này.", true);
+  const o  = maps.order[it.order_id];        if(!o)  return toast("Không thấy đơn gốc.", true);
+  const acc = accId && maps.sellAcc[accId];
+  const plat = (acc && acc.platform) || o.platform;
+  const trk  = String(it.tracking_number || o.tracking_number || "").trim() || null;
+  try{
+    const { data, error } = await db.from("orders").insert({
+      platform:plat, platform_order_id:o.platform_order_id, shipped_by:o.shipped_by,
+      seller_id:o.seller_id, seller_name_import:o.seller_name_import,
+      order_date:o.order_date, note_day:o.note_day||null,
+      selling_account_id: accId || null,
+      label_link:o.label_link, label_fee:o.label_fee,
+      customer_name:o.customer_name, customer_contact:o.customer_contact, customer_address:o.customer_address,
+      buyer_note:o.buyer_note, seller_note:o.seller_note,
+      tracking_number:trk, created_by:S.me.id,
+    }).select().single();
+    if(error){
+      if(error.code==="23505" || /duplicate key|unique/i.test(error.message||""))
+        return toast("Đã có đơn khác cùng Order ID + TK bán này rồi — không tách được. Kiểm tra lại giúp mình.", true);
+      return fail(error);
+    }
+    const { error:e2 } = await db.from("order_items").update({ order_id:data.id, source_line:null }).eq("id", itemId);
+    if(e2) return fail(e2);
+    it.order_id = data.id; it.source_line = null;
+    S.orders.push(data); maps.order[data.id] = data;
+    slaCacheClear(); buildRows(); buildNav(); renderOrders();
+    toast(`Đã tách sản phẩm ra đơn riêng — TK bán: ${acc?acc.name:"(trống)"}.`);
+  }catch(e){ fail(e); }
+}
 async function saveCellEditor(itemId, field, orderLevel){
   const it=S.items.find(x=>x.id===itemId); if(!it) return; const o=maps.order[it.order_id];
   const v=($("#cellEd").value||"").trim()||null;
@@ -3377,7 +3409,28 @@ async function gridSave(itemId){
       const od=val("order_date"); if(od!==undefined) op.order_date=od||null;
       ["customer_name","customer_contact","customer_address","label_link"].forEach(f=>{ const v=val(f); if(v!==undefined) op[f]=tr(v); });
       const lf=val("label_fee"); if(lf!==undefined) op.label_fee=lf===""?null:Number(lf);
-      if(Object.keys(op).length){ op.updated_by=S.me.id; const {error}=await db.from("orders").update(op).eq("id",o.id); if(error) throw error; Object.assign(o,op); }
+      /* TK bán: đổi thì cập nhật luôn Sàn cho khớp (TK bán quyết định sàn).
+         TK bán thuộc về CẢ ĐƠN -> nếu đơn có nhiều SP thì hỏi: tách riêng hay đổi cả đơn. */
+      const ac=val("selling_account_id");
+      if(ac!==undefined && String(ac||"")!==String(o.selling_account_id||"")){
+        const sibs = S.items.filter(i=>i.order_id===o.id);
+        if(sibs.length>1){
+          const accName = (ac && maps.sellAcc[ac] && maps.sellAcc[ac].name) || "(trống)";
+          const ok = confirm(`Đơn ${o.platform_order_id} đang có ${sibs.length} sản phẩm DÙNG CHUNG một TK bán.\n\n`
+            + `• Bấm OK = TÁCH riêng sản phẩm này thành ĐƠN MỚI với TK bán "${accName}".\n`
+            + `• Bấm Cancel = đổi TK bán cho CẢ ĐƠN (${sibs.length} sản phẩm).`);
+          if(ok){ await splitItemToNewOrder(itemId, ac); return; }
+        }
+        op.selling_account_id = ac||null;
+        const _a = ac && maps.sellAcc[ac]; if(_a && _a.platform) op.platform = _a.platform;
+      }
+      if(Object.keys(op).length){ op.updated_by=S.me.id; const {error}=await db.from("orders").update(op).eq("id",o.id);
+        if(error){
+          if(error.code==="23505" || /duplicate key|unique/i.test(error.message||""))
+            throw new Error("Đã có đơn khác cùng Order ID + TK bán này (cùng tracking, cùng ngày note). Đổi TK bán sẽ trùng — kiểm tra lại giúp mình.");
+          throw error;
+        }
+        Object.assign(o,op); }
     }
     const ip={};
     if(sOk){
