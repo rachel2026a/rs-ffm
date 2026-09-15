@@ -210,7 +210,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.83</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.84</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -2122,20 +2122,22 @@ async function saveNewRows(){
   window._savingNew = true;
   const groups = {};
   for(const r of rows){
-    const _oid=r.order_id.trim(), _trk=String(r.tracking||"").trim();
-    (groups[_oid+"\u0001"+_trk] ||= { oid:_oid, trk:_trk, rs:[] }).rs.push(r);
+    const _oid=r.order_id.trim(), _trk=String(r.tracking||"").trim(), _acc=String(r.acc||"").trim();
+    (groups[_oid+"\u0001"+_trk+"|"+_acc] ||= { oid:_oid, trk:_trk, acc:_acc, rs:[] }).rs.push(r);
   }
   let nOrders=0, nItems=0;
   try{
     for(const _k of Object.keys(groups)){
-      const { oid, trk, rs } = groups[_k];
-      /* chỉ gộp khi TRÙNG CẢ: Order ID + Tracking + Ngày note (hôm nay) */
-      const _plat = (maps.sellAcc[rs[0].acc] && maps.sellAcc[rs[0].acc].platform) || "TTS";
-      let order = S.orders.find(o=>o.platform===_plat && o.platform_order_id===oid
+      const { oid, trk, acc, rs } = groups[_k];
+      /* chỉ gộp khi TRÙNG CẢ: Order ID + TK BÁN + Tracking + Ngày note (hôm nay).
+         2 shop khác nhau có thể trùng Order ID -> phải tách thành 2 đơn riêng. */
+      const _plat = (maps.sellAcc[acc] && maps.sellAcc[acc].platform) || "TTS";
+      const _sameAcc = o => String(o.selling_account_id||"") === acc;
+      let order = S.orders.find(o=>o.platform===_plat && o.platform_order_id===oid && _sameAcc(o)
         && orderTrack(o)===trk && orderNoteDay(o)===today());
       /* Lưu bổ sung tracking cho đơn đã note cùng ngày (đơn cũ chưa có tracking) -> GỘP, không đẻ đơn mới */
       if(!order && trk){
-        const cand = S.orders.find(o=>o.platform===_plat && o.platform_order_id===oid
+        const cand = S.orders.find(o=>o.platform===_plat && o.platform_order_id===oid && _sameAcc(o)
           && orderNoteDay(o)===today() && orderTrack(o)==="");
         if(cand){
           order = cand;
@@ -2150,7 +2152,7 @@ async function saveNewRows(){
         const ins = await db.from("orders").insert({
           platform:_plat, platform_order_id:oid, shipped_by:"tiktok_shipping",
           seller_id: S.me.id, tracking_number: trk || null,
-          order_date: r0.date||null, selling_account_id: r0.acc||null,
+          order_date: r0.date||null, selling_account_id: acc||null,
           label_link: r0.label||null,
           customer_name: cu.name, customer_contact: cu.phone, customer_address: cu.address,
           seller_note: r0.note||null, created_by: S.me.id,
@@ -2160,7 +2162,7 @@ async function saveNewRows(){
             /* đơn đã tồn tại (bấm Lưu 2 lần / người khác vừa tạo) -> lấy lại, KHÔNG tạo trùng */
             const q = await db.from("orders").select("*").eq("platform",_plat).eq("platform_order_id",oid);
             if(q.error) throw q.error;
-            order = (q.data||[]).find(x=>String(x.tracking_number||"").trim()===trk && orderNoteDay(x)===today()) || null;
+            order = (q.data||[]).find(x=>String(x.tracking_number||"").trim()===trk && _sameAcc(x) && orderNoteDay(x)===today()) || null;
             if(!order) throw ins.error;
             if(order && !S.orders.find(o=>o.id===order.id)){ S.orders.push(order); maps.order[order.id]=order; }
           } else throw ins.error;
@@ -3414,6 +3416,7 @@ async function syncItemTracking(it, o){
   }
   /* Xung đột -> tách SP này sang đơn cùng Order ID + tracking mới + cùng ngày note */
   let dest = S.orders.find(x=>x.platform===o.platform && x.platform_order_id===o.platform_order_id
+    && String(x.selling_account_id||"")===String(o.selling_account_id||"")
     && String(x.tracking_number||"").trim()===trk && orderNoteDay(x)===orderNoteDay(o));
   if(!dest){
     const { data, error } = await db.from("orders").insert({
@@ -3536,4 +3539,4 @@ boot();
 /* TẠM TẮT service worker: gỡ mọi SW đang chạy + xoá cache để không phục vụ bản cũ. */
 if("serviceWorker" in navigator){
   navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())).catch(()=>{});
-  if(self.caches && 
+  if(self.caches &&
