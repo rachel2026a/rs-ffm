@@ -210,7 +210,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.86</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.87</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -255,6 +255,15 @@ const STATUS_BADGE = { new:"b-gray", waiting_design:"b-yellow", design_ok:"b-blu
 const ROLE_VI = { seller:"Seller", ffm:"FFM", admin:"Admin (SD)" };
 /* Sàn: gợi ý sẵn + tự gom các sàn đang dùng trong dữ liệu. Gõ tên mới là thêm được. */
 const PLATFORM_SUGGEST = ["TTS","AMZ","ETSY","WALMART","EBAY","SHOPIFY"];
+/* Danh sách TK bán đã SẮP XẾP A→Z (TTS9 trước TTS10 nhờ numeric) — dùng chung mọi nơi */
+function sellAccSorted(){
+  return [...(S.sellAccs||[])].sort((a,b)=>
+    String(a.name||"").localeCompare(String(b.name||""), "vi", { numeric:true, sensitivity:"base" }));
+}
+function sellAccOptsHTML(selId){
+  return sellAccSorted().filter(a=>a.active!==false || a.id===selId)
+    .map(a=>`<option value="${a.id}" ${selId===a.id?"selected":""}>${esc(a.name)}</option>`).join("");
+}
 function platformList(){
   const set = new Set(PLATFORM_SUGGEST);
   (S.sellAccs||[]).forEach(a=>{ if(a.platform) set.add(String(a.platform).trim().toUpperCase()); });
@@ -1317,7 +1326,7 @@ function renderOrders(){
     <button class="btn btn-sm" onclick="S.filters={q:'',seller:'',team:'',trk:'',factory:'',status:'',multi:false,special:'',dateFrom:'',dateTo:'',account:'',sort:'date',sortDir:'desc',batch:null};S.page=1;renderOrders()">Xóa lọc</button>
   </div>
   <div class="flex mt" style="gap:8px;flex-wrap:wrap">
-    <input id="fAcc" list="dl_facc" value="${esc(f.account&&maps.sellAcc[f.account]?maps.sellAcc[f.account].name:'')}" placeholder="Tất cả TK bán" autocomplete="off" style="min-width:130px"><datalist id="dl_facc">${S.sellAccs.map(a=>`<option value="${esc(a.name)}">`).join("")}</datalist>
+    <input id="fAcc" list="dl_facc" value="${esc(f.account&&maps.sellAcc[f.account]?maps.sellAcc[f.account].name:'')}" placeholder="Tất cả TK bán" autocomplete="off" style="min-width:130px"><datalist id="dl_facc">${sellAccSorted().map(a=>`<option value="${esc(a.name)}">`).join("")}</datalist>
     <select id="fSort"><option value="created" ${f.sort==="created"?"selected":""}>Sắp xếp: Mới nhập</option><option value="date" ${f.sort==="date"?"selected":""}>Sắp xếp: Ngày order</option><option value="sla" ${f.sort==="sla"?"selected":""}>Sắp xếp: SLA</option><option value="cost" ${f.sort==="cost"?"selected":""}>Sắp xếp: Chi phí</option></select>
     <button class="btn btn-sm" onclick="S.filters.sortDir=S.filters.sortDir==='asc'?'desc':'asc';renderOrders()">${f.sortDir==="asc"?"↑ Tăng dần":"↓ Giảm dần"}</button>
     <button class="btn btn-sm" onclick="colMenu()">⚙ Cột</button>
@@ -1359,7 +1368,7 @@ function renderOrders(){
       <td onclick="event.stopPropagation()" style="text-align:center">${it?`<input type="checkbox" class="rsel" data-id="${it.id}" ${S.sel&&S.sel.has(it.id)?"checked":""} onclick="toggleSel('${it.id}',this.checked)">`:""}</td>
       <td class="oc-date nowrap">${em&&it?`<input type="date" id="g_order_date_${it.id}" value="${o.order_date||''}" onchange="gridSave('${it.id}')" ${dS}>`:fmtD(o.order_date)}</td>
       <td class="oc-oid nowrap"><a href="#" onclick="openOrder('${o.id}');return false">${esc(o.platform_order_id)}</a> <span class="cpy" data-copy="${esc(o.platform_order_id)}" title="Copy Order ID" style="cursor:pointer">📋</span> <a href="#" onclick="openOrder('${o.id}');return false" title="Mở & sửa/cập nhật đơn" style="text-decoration:none">✏️</a>${r.multi?' <span class="badge b-purple" title="Đơn nhiều sản phẩm">⧉</span>':""}${S.dupOrders&&S.dupOrders.has(o.id)?' <span class="badge b-yellow" title="Trùng tên/địa chỉ khách với đơn khác">👥</span>':""}</td>
-      <td class="oc-acc nowrap">${em&&it?`<select id="g_selling_account_id_${it.id}" onchange="gridSave('${it.id}')" ${dS} style="max-width:130px"><option value="">—</option>${S.sellAccs.filter(a=>a.active!==false||a.id===o.selling_account_id).map(a=>`<option value="${a.id}" ${o.selling_account_id===a.id?"selected":""}>${esc(a.name)}</option>`).join("")}</select>`:esc(o.selling_account_id && maps.sellAcc[o.selling_account_id]?.name || "")}</td>
+      <td class="oc-acc nowrap">${em&&it?`<select id="g_selling_account_id_${it.id}" onchange="gridSave('${it.id}')" ${dS} style="max-width:130px"><option value="">—</option>${sellAccOptsHTML(o.selling_account_id)}</select>`:esc(o.selling_account_id && maps.sellAcc[o.selling_account_id]?.name || "")}</td>
       <td class="oc-seller nowrap">${esc(sellerName(o))}</td>
       <td class="oc-team nowrap">${esc(teamOf(o))}</td>
       <td class="oc-label nowrap">${em&&it?`<input id="g_label_link_${it.id}" value="${esc(o.label_link||'')}" onchange="gridSave('${it.id}')" ${dS} style="width:110px">`:(o.label_link?`<a href="${esc(o.label_link)}" target="_blank" onclick="event.stopPropagation()">🔗</a>`:"")}</td>
@@ -1656,7 +1665,7 @@ function openOrder(orderId, edit){
   <p class="sub">Seller: <b>${esc(sellerName(o))}</b> · tạo ${o.created_at?fmtD(String(o.created_at).slice(0,10)):"—"} · 🔵 = Seller nhập · 🟢 = FFM cập nhật</p>`;
   if(!edit){ openModal(head + orderViewHTML(o) + items.map((it,i)=>itemViewCard(o,it,i)).join("") + (ce?`<div class="flex mt"><button class="btn btn-p" onclick="openOrder('${orderId}',true)">✏️ Sửa đơn này</button><button class="btn" onclick="closeModal()">Đóng</button></div>`:`<div class="flex mt"><button class="btn btn-sm" onclick="claimCare('${o.id}')">🤝 Nhận hỗ trợ (sửa tạm 24h)</button><button class="btn" onclick="closeModal()">Đóng</button></div>`)); return; }
   const dis = ce?"":"disabled";
-  const sellOpts = S.sellAccs.filter(a=>a.active!==false).map(a=>`<option value="${a.id}" ${o.selling_account_id===a.id?"selected":""}>${esc(a.name)}</option>`).join("");
+  const sellOpts = sellAccOptsHTML(o.selling_account_id);
 
   openModal(head + `
   <div class="card mb"><h3>🔵 Thông tin đơn & khách</h3>
@@ -1756,8 +1765,33 @@ async function saveOrder(id){
     seller_note: $("#od_note").value.trim() || null,
     updated_by: S.me.id,
   };
+  const o = maps.order[id];
+  /* Đổi TK bán: cập nhật luôn Sàn; nếu đơn có nhiều SP thì hỏi tách riêng hay đổi cả đơn */
+  if(o && String(patch.selling_account_id||"") !== String(o.selling_account_id||"")){
+    const _a = patch.selling_account_id && maps.sellAcc[patch.selling_account_id];
+    if(_a && _a.platform) patch.platform = _a.platform;
+    const sibs = S.items.filter(i=>i.order_id===id);
+    if(sibs.length>1){
+      const accName = (_a && _a.name) || "(trống)";
+      const ok = confirm(`Đơn ${o.platform_order_id} có ${sibs.length} sản phẩm DÙNG CHUNG một TK bán.\n\n`
+        + `• OK = chỉ tách 1 sản phẩm sang đơn mới với TK bán "${accName}" (chọn sản phẩm ở bước sau).\n`
+        + `• Cancel = đổi TK bán cho CẢ ĐƠN (${sibs.length} sản phẩm).`);
+      if(ok){
+        const list = sibs.map((x,n)=>`${n+1}. ${itemLabel(x)}${x.size?" · "+x.size:""}${x.color?" · "+x.color:""}`).join("\n");
+        const pick = prompt(`Tách sản phẩm số mấy sang đơn mới?\n\n${list}\n\nNhập số thứ tự (1-${sibs.length}):`, "1");
+        const idx = Number(String(pick||"").trim()) - 1;
+        if(!(idx>=0 && idx<sibs.length)) return toast("Đã huỷ tách.", true);
+        closeModal();
+        return splitItemToNewOrder(sibs[idx].id, patch.selling_account_id||null);
+      }
+    }
+  }
   const { error } = await db.from("orders").update(patch).eq("id", id);
-  if(error) return fail(error);
+  if(error){
+    if(error.code==="23505" || /duplicate key|unique/i.test(error.message||""))
+      return toast("Đã có đơn khác cùng Order ID + TK bán này (cùng tracking, cùng ngày note) — đổi sẽ bị trùng.", true);
+    return fail(error);
+  }
   Object.assign(maps.order[id], patch); buildRows(); toast("Đã lưu đơn."); closeModal(); go(S.view);
 }
 async function saveItemSeller(id){
@@ -1986,7 +2020,7 @@ function newSheetHTML(){
   const accOpts = S.sellAccs.filter(a=>a.active!==false).map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join("");
   const tOpts = S.templates.filter(t=>t.active!==false).map(t=>`<option value="${t.id}">${esc((t.code?t.code+" · ":"")+t.name)}</option>`).join("");
   const tDisp = t => (t.code?t.code+" · ":"")+t.name;
-  const dls = `<datalist id="dl_acc">${S.sellAccs.filter(a=>a.active!==false).map(a=>`<option value="${esc(a.name)}">`).join("")}</datalist>
+  const dls = `<datalist id="dl_acc">${sellAccSorted().filter(a=>a.active!==false).map(a=>`<option value="${esc(a.name)}">`).join("")}</datalist>
   <datalist id="dl_tmpl">${S.templates.filter(t=>t.active!==false).map(t=>`<option value="${esc(tDisp(t))}">`).join("")}</datalist>`;
   return `${dls}${ncStyle()}<div class="tw" style="max-height:60vh"><table class="sheet">
     <tr class="thgroup"><th></th>${ncGroupHead()}<th></th></tr>
