@@ -212,7 +212,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.91</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.92</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -414,6 +414,26 @@ async function ensureOrdersLoaded(oids, forceShow){
   return got;
 }
 /* Kéo 1 đơn (kèm SP) khi realtime báo có thay đổi ở đơn chưa tải */
+/* THÊM VÀO BỘ NHỚ KHÔNG BAO GIỜ TRÙNG.
+   Lỗi cũ: realtime (websocket) đôi khi báo "có đơn/SP mới" TRƯỚC khi lệnh lưu trả kết quả về
+   -> cùng 1 đơn/SP bị thêm 2 lần vào bộ nhớ -> hiện ĐÚP dòng, F5 thì hết (DB không trùng).
+   Mọi chỗ thêm đơn/SP vào S.orders/S.items phải đi qua 2 hàm này. */
+function upsertOrder(o){
+  if(!o || !o.id) return o;
+  const ex = maps.order[o.id] || S.orders.find(x=>x.id===o.id);
+  if(ex){ if(ex!==o) Object.assign(ex, o); maps.order[o.id]=ex; return ex; }
+  S.orders.push(o); maps.order[o.id]=o; return o;
+}
+function upsertItems(list){
+  const out=[]; if(!list || !list.length) return out;
+  const idx = new Map(S.items.map((x,i)=>[x.id,i]));
+  for(const it of list){ if(!it || !it.id) continue;
+    const i = idx.get(it.id);
+    if(i!=null){ Object.assign(S.items[i], it); out.push(S.items[i]); }
+    else { idx.set(it.id, S.items.length); S.items.push(it); out.push(it); }
+  }
+  return out;
+}
 async function adoptOrder(id, checkScope){
   if(!id || maps.order[id]) return;
   window._adopting ||= new Set();
@@ -428,8 +448,7 @@ async function adoptOrder(id, checkScope){
     if(!inScope){ return; }                            /* giữ trong _adopting để khỏi hỏi lại */
   }
   const its=data.order_items||[]; delete data.order_items;
-  S.orders.push(data); maps.order[data.id]=data;
-  for(const it of its) if(!S.items.some(x=>x.id===it.id)) S.items.push(it);
+  upsertOrder(data); upsertItems(its);
   slaCacheClear(); buildRows(); buildNav();
   clearTimeout(window._adoptT); window._adoptT=setTimeout(()=>{ if(!editingNow()) go(S.view); }, 400);
 }
@@ -591,7 +610,7 @@ function rtApply(tbl, payload){
       if(ev==="INSERT" || ev==="UPDATE"){
         if(!rec || !rec.id) return false;
         const i = S.items.findIndex(x=>x.id===rec.id);
-        if(i>=0) Object.assign(S.items[i], rec); else S.items.push(rec);
+        if(i>=0) Object.assign(S.items[i], rec); else upsertItems([rec]);
         /* SP thuộc đơn CHƯA tải (đơn cũ) -> kéo đơn đó về để không bỏ sót cập nhật */
         if(rec.order_id && !maps.order[rec.order_id]) adoptOrder(rec.order_id, true);
         return true;
@@ -667,6 +686,12 @@ async function loadAll(){
 /* item-per-row: mỗi sản phẩm 1 dòng (giữ bố cục Excel) */
 function buildRows(){
   slaCacheClear();
+  /* Lưới an toàn: gộp bản trùng (cùng id) nếu có, trước khi vẽ -> không bao giờ hiện đúp dòng */
+  { const so=new Set(); if(S.orders.some(o=>so.has(o.id)||!so.add(o.id))){
+      const seen=new Set(); S.orders=S.orders.filter(o=>!seen.has(o.id) && seen.add(o.id));
+      S.orders.forEach(o=>{ maps.order[o.id]=o; }); }
+    const si=new Set(); if(S.items.some(x=>si.has(x.id)||!si.add(x.id))){
+      const seen=new Set(); S.items=S.items.filter(x=>!seen.has(x.id) && seen.add(x.id)); } }
   const byOrder = {};
   for(const it of S.items){ (byOrder[it.order_id] ||= []).push(it); }
   for(const k in byOrder) byOrder[k].sort((a,b)=>(a.source_line||0)-(b.source_line||0));
@@ -1864,7 +1889,7 @@ async function saveItemFFM(id){
 async function addItem(orderId){
   const { data, error } = await db.from("order_items").insert({ order_id: orderId, quantity: 1 }).select().single();
   if(error) return fail(error);
-  S.items.push(data); buildRows(); openOrder(orderId, true);
+  upsertItems([data]); buildRows(); openOrder(orderId, true);
 }
 async function delItem(id, orderId){
   if(!confirm("Xoá sản phẩm này?")) return;
@@ -2274,9 +2299,9 @@ async function saveNewRows(){
             if(q.error) throw q.error;
             order = (q.data||[]).find(x=>String(x.tracking_number||"").trim()===trk && _sameAcc(x) && orderNoteDay(x)===today()) || null;
             if(!order) throw ins.error;
-            if(order && !S.orders.find(o=>o.id===order.id)){ S.orders.push(order); maps.order[order.id]=order; }
+            if(order) order = upsertOrder(order);
           } else throw ins.error;
-        } else { order = ins.data; S.orders.push(order); maps.order[order.id]=order; nOrders++; }
+        } else { order = upsertOrder(ins.data); nOrders++; }
       }
       const existing = S.items.filter(i=>i.order_id===order.id).length;
       /* Tái dùng item RỖNG (vd đơn Nạp Excel TTS chỉ có SL, chưa có sản phẩm) -> KHÔNG tạo dòng trùng */
@@ -2302,7 +2327,7 @@ async function saveNewRows(){
             item_status: (r.conf==="1"||r.conf==="3") ? "design_ok" : (r.design ? "waiting_design" : "new") });
         }
       }
-      if(toInsert.length){ const { data: its, error: e2 } = await db.from("order_items").insert(toInsert).select(); if(e2) throw e2; S.items.push(...its); nItems += its.length; }
+      if(toInsert.length){ const { data: its, error: e2 } = await db.from("order_items").insert(toInsert).select(); if(e2) throw e2; upsertItems(its); nItems += its.length; }
       rs.forEach(r=>{ r._saved = true; });   /* nhóm này đã lưu xong -> bấm Lưu lại sẽ KHÔNG lưu lần 2 */
     }
   }catch(e){
@@ -2710,7 +2735,7 @@ async function runImport(){
       }
       if(error) throw error;
       created += data.length;
-      const byPid = {}; data.forEach(o=>{ byPid[o.platform_order_id]=o; S.orders.push(o); maps.order[o.id]=o; });
+      const byPid = {}; data.forEach(o=>{ byPid[o.platform_order_id]=upsertOrder(o); });
       const itemRows = [];
       for(const po of newOrdersSrc.slice(i,i+200)){
         const o = byPid[po.platform_order_id]; if(!o) continue;
@@ -2728,7 +2753,7 @@ async function runImport(){
       }
       for(let j=0; j<itemRows.length; j+=500){
         const { data:its, error:e2 } = await db.from("order_items").insert(itemRows.slice(j,j+500)).select();
-        if(e2) throw e2; S.items.push(...its); itemsAdded += its.length;
+        if(e2) throw e2; upsertItems(its); itemsAdded += its.length;
       }
     }
     buildRows(); buildNav();
@@ -3519,7 +3544,7 @@ async function splitItemToNewOrder(itemId, accId){
       return fail(e2);
     }
     it.order_id = data.id; it.source_line = null;
-    S.orders.push(data); maps.order[data.id] = data;
+    upsertOrder(data);
     slaCacheClear(); buildRows(); buildNav();
     if(S.view==="orders") renderOrders(); else go(S.view);
     toast(`Đã tách sản phẩm ra đơn riêng — TK bán: ${acc?acc.name:"(trống)"}.`);
@@ -3639,7 +3664,7 @@ async function syncItemTracking(it, o){
       tracking_number:trk, ...(o.note_day?{note_day:o.note_day}:{}), created_by:S.me.id,
     }).select().single();
     if(error){ toast("Không tách được đơn: "+(error.message||error), true); return; }
-    dest = data; dest._justMade = true; S.orders.push(dest); maps.order[dest.id]=dest;
+    dest = upsertOrder(data); dest._justMade = true;
   }
   const { error:e2 } = await db.from("order_items").update({ order_id:dest.id, source_line:null }).eq("id", it.id);
   if(e2){
