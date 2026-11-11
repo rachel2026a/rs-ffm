@@ -212,7 +212,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.98</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v4.00</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -375,19 +375,32 @@ function loadCutoff(){ const d=new Date(); d.setDate(d.getDate()-LOAD_DAYS);
 /* Danh sách cột cần tải — BỎ cột source_raw (bản sao nguyên dòng Excel lúc import, màn hình không dùng).
    Đơn cũ import từ Cotik/RSA có source_raw rất nặng -> tải lịch sử dễ quá giờ (timeout) và chậm.
    Lấy tên cột từ chính database (1 dòng mẫu) nên sau này thêm cột mới không bị sót. */
-async function orderSelectCols(){
-  if(S._selCols) return S._selCols;
+async function orderSelectCols(force){
+  if(S._selCols && !force) return S._selCols;
   const keysOf = async t => { try{ const { data, error } = await db.from(t).select("*").limit(1);
       if(error || !data || !data.length) return null;
       return Object.keys(data[0]).filter(k=>k!=="source_raw"); }catch(_){ return null; } };
-  const [oc, ic] = await Promise.all([keysOf("orders"), keysOf("order_items")]);
-  S._selCols = `${oc?oc.join(","):"*"}, order_items(${ic?ic.join(","):"*"})`;
+  /* Nhớ danh sách cột trên máy (theo từng phiên bản web): lần mở sau không phải chờ 2 câu dò cột (~3-4 giây) rồi mới bắt đầu tải đơn */
+  const ver=(((document.querySelector(".logo")||{}).textContent||"").match(/v([0-9.]+)/)||[])[1]||"0";
+  const probe = async()=>{ const [oc, ic] = await Promise.all([keysOf("orders"), keysOf("order_items")]);
+    const v=`${oc?oc.join(","):"*"}, order_items(${ic?ic.join(","):"*"})`;
+    if(oc && ic){ try{ localStorage.setItem("ffm_selcols", JSON.stringify({ ver, v })); }catch(_){} }
+    return v; };
+  if(!force){ try{ const c=JSON.parse(localStorage.getItem("ffm_selcols")||"null");
+      if(c && c.ver===ver && c.v && c.v.indexOf("*")<0){ S._selCols=c.v;
+        const used=c.v;
+        setTimeout(()=>{ probe().then(v=>{ if(!v || v.indexOf("*")>=0 || v===used) return;
+            S._selCols=v;   /* DB vừa thêm / bỏ cột so với danh sách đã nhớ -> dữ liệu đang hiện có thể thiếu cột: nhắc tải lại */
+            try{ toast("Cấu trúc dữ liệu vừa thay đổi — bấm «Tải lại» để lấy đủ các cột mới."); showReloadChip(); }catch(_){} }).catch(()=>{}); }, 20000);   /* kiểm tra ngầm, sau khi đã tải xong */
+        return S._selCols; } }catch(_){} }
+  S._selCols = await probe();
   return S._selCols;
 }
 async function fetchOrders(full, fromDate){
-  let size = 500; let from = 0; const orders = [], items = [], seen = new Set();
+  /* Mỗi câu truy vấn có phần "chi phí cố định" lớn (kiểm tra quyền trên toàn bảng) -> lấy 1000 đơn/lượt để giảm một nửa số lượt gọi */
+  let size = 1000; let from = 0; const orders = [], items = [], seen = new Set();
   const cut = loadCutoff();
-  const cols = await orderSelectCols();
+  let cols = await orderSelectCols(); let colsRetried = false;
   for(;;){
     let q = db.from("orders").select(cols)
       .order("order_date",{ascending:false}).order("id",{ascending:true})   /* khoá phụ: phân trang không sót/lặp */
@@ -400,11 +413,19 @@ async function fetchOrders(full, fromDate){
     /* Quá giờ (timeout) -> thử lại đúng trang đó với cỡ nhỏ hơn, thay vì bỏ cả lượt tải */
     if(error && size>50 && (error.code==="57014" || /timeout|canceling statement/i.test(error.message||""))){
       size = Math.max(50, Math.floor(size/2)); continue; }
+    /* Danh sách cột nhớ trên máy đã cũ (DB vừa bỏ / đổi tên cột) -> dò lại cột rồi thử lại đúng 1 lần */
+    if(error && !colsRetried && (error.code==="42703" || error.code==="PGRST204" || /column .* does not exist|could not find .* column/i.test(error.message||""))){
+      colsRetried = true; try{ localStorage.removeItem("ffm_selcols"); }catch(_){}
+      cols = await orderSelectCols(true); continue; }
     if(error) throw error;
     for(const o of (data||[])){ if(seen.has(o.id)) continue; seen.add(o.id);
       const its = o.order_items || []; delete o.order_items; orders.push(o); items.push(...its); }
-    if(!data || data.length < size) break;
-    from += size;
+    const got = (data||[]).length;
+    if(!got) break;
+    from += got;
+    /* Hết dữ liệu khi lượt này về ÍT hơn yêu cầu. Riêng số tròn trăm thì gọi thêm 1 lượt cho chắc:
+       có thể máy chủ đang giới hạn số dòng mỗi lượt (thấp hơn cỡ trang) chứ chưa phải hết đơn. */
+    if(got < size && got % 100 !== 0) break;
   }
   return { orders, items };
 }
@@ -2902,6 +2923,7 @@ function _trkSortFn(){
     seller:(a,b)=>sellerName(a.r.o).localeCompare(sellerName(b.r.o)) || urg(a,b) })[TRK_VIEW.sort] || urg;
 }
 function renderTrack(){
+  const _fid=(document.activeElement && document.activeElement.id) || "";
   $("#view").innerHTML = `
   <h1>Cần lấy track</h1>
   <p class="sub">Sản phẩm <b>đã đẩy xưởng nhưng chưa có mã vận đơn</b> (tracking còn trống hoặc mới là ghi chú như «Xưởng ship», tên xưởng). Có tracking — up file, dán bảng hoặc điền từng dòng — là sản phẩm tự rời khỏi danh sách.</p>
@@ -2925,6 +2947,7 @@ function renderTrack(){
   const fi=$("#trkFile"); if(fi) fi.onchange = e=>{ const fs=[...e.target.files]; e.target.value=""; trkLoadFiles(fs); };
   trkRenderLists();
   if(TRK) trkRender();
+  if(_fid==="trkQ" || _fid==="trkPQ"){ const e=document.getElementById(_fid); if(e){ e.focus(); try{ e.setSelectionRange(e.value.length, e.value.length); }catch(_){} } }
 }
 /* Vẽ riêng phần ô số + bộ lọc + danh sách (không đụng tới khung nhập / bảng xem trước đang mở) */
 function trkRenderLists(){
