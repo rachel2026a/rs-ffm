@@ -212,7 +212,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.97</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v3.98</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -1131,7 +1131,7 @@ function renderTodo(){
     { const nt=trkNeedRows(false).filter(teamF).map(_trkFlag); const nl=nt.filter(f=>f.late).length, ns=nt.filter(f=>f.soon).length, nw=nt.filter(f=>f.wait).length;
       html += `<div class="card mb"><h3>🚚 MỤC FFM — cần lấy track (${nt.length})</h3>
       ${nt.length?`<p class="small">${nl?`<b class="sla-red">${nl} quá hạn ship</b> · `:""}${ns?`<b class="sla-yellow">${ns} đến hạn trong 48h</b> · `:""}${nw?`${nw} chờ xưởng từ ${TRK_WAIT_DAYS} ngày · `:""}xưởng chưa trả mã vận đơn</p>
-      <button class="btn btn-p btn-sm mb" onclick="TRK_VIEW.fac='';TRK_VIEW.flt='';go('track')">Mở màn hình Cần lấy track →</button>`:`<p class="muted">Không có sản phẩm nào chờ tracking.</p>`}
+      <button class="btn btn-p btn-sm mb" onclick="Object.assign(TRK_VIEW,{fac:'',flt:'',q:'',age:'',seller:''});go('track')">Mở màn hình Cần lấy track →</button>`:`<p class="muted">Không có sản phẩm nào chờ tracking.</p>`}
     </div>`; }
     if(negBal.length) html += `<div class="card mb"><h3>💸 Xưởng cần topup</h3>
       ${negBal.map(b=>`<div class="alertrow"><span class="dot" style="background:var(--red)"></span>
@@ -1176,7 +1176,7 @@ function renderAlerts(){
     e.preventDefault();
     const a = alerts[+el.dataset.i]; if(!a) return;
     if(a.q){ S.filters.q = a.q; go("orders"); }
-    else if(a.view){ if(a.view==="track"){ TRK_VIEW.fac=a.fac||""; TRK_VIEW.flt=a.flt||""; } go(a.view); }
+    else if(a.view){ if(a.view==="track"){ Object.assign(TRK_VIEW, { fac:a.fac||"", flt:a.flt||"", q:"", age:"", seller:"" }); } go(a.view); }
   });
 }
 
@@ -2830,7 +2830,7 @@ async function runImport(){
    khớp theo PO (Order FFM) TRƯỚC, rồi tới Order ID -> xem trước -> ghi.
    Không phụ thuộc form từng xưởng: cột mã đơn được nhận theo TÊN CỘT hoặc theo NỘI DUNG (giá trị trùng PO/Order ID trong tool). */
 let TRK = null;                       /* lần nhập đang mở: { srcs, fid, res, show, busy, prog, done, asked } */
-let TRK_VIEW = { all:false, fac:"", flt:"", mf:"" }; /* bộ lọc của danh sách cần lấy track */
+let TRK_VIEW = { all:false, fac:"", flt:"", mf:"", q:"", age:"", seller:"", sort:"urgent" }; /* bộ lọc của danh sách cần lấy track */
 const TRK_ST = { new:["Sẽ cập nhật","b-green"], conflict:["Đang có tracking khác","b-yellow"], same:["Đã có sẵn","b-gray"],
   notfound:["Không tìm thấy đơn","b-red"], manual:["Cần xử lý tay","b-purple"], bad:["Tracking không hợp lệ","b-red"], cancelled:["Đơn đã huỷ","b-gray"] };
 const TRK_H_TRACK = /track|vandon|mavd/;
@@ -2874,29 +2874,38 @@ function _trkFlag(r){
   return { sla, w, late:!!(sla && sla.hrs<0), soon:!!(sla && sla.hrs>=0 && sla.hrs<48),
     wait:(w!=null && w>=TRK_WAIT_DAYS), nopo:!String(r.it.factory_order_id||"").trim() };
 }
+/* Lần lấy dữ liệu tự động gần nhất (nhớ trên máy này) */
+function _trkLastSet(k){ try{ localStorage.setItem("ffm_trk_last_"+k, String(Date.now())); }catch(_){} const e=document.getElementById("trkLast"); if(e) e.textContent=_trkLastTxt(); }
+function _trkLastTxt(){
+  const f=k=>{ try{ const t=Number(localStorage.getItem("ffm_trk_last_"+k)); if(!t) return ""; const d=new Date(t), z=n=>String(n).padStart(2,"0");
+      return `${z(d.getHours())}:${z(d.getMinutes())} ngày ${z(d.getDate())}/${z(d.getMonth()+1)}`; }catch(_){ return ""; } };
+  const a=f("mango"), b=f("hook");
+  return (a||b) ? "Lần lấy gần nhất trên máy này — "+[a&&("API Mango: "+a), b&&("Xưởng tự gửi về: "+b)].filter(Boolean).join(" · ") : "";
+}
+/* Danh sách cần lấy track sau khi áp bộ lọc thời gian / seller / ô tìm (CHƯA áp bộ lọc ô số & xưởng) */
+function _trkBase(){
+  const v=TRK_VIEW;
+  let base=trkNeedRows(v.all).map(r=>({ r, f:_trkFlag(r) }));
+  if(v.age) base=base.filter(x=> x.f.w!=null && (v.age==="7" ? x.f.w<=7 : v.age==="30" ? x.f.w<=30 : x.f.w>30));
+  if(v.seller) base=base.filter(x=>sellerName(x.r.o)===v.seller);
+  const q=String(v.q||"").trim().toLowerCase();
+  if(q) base=base.filter(x=>{ const o=x.r.o, it=x.r.it;
+    return [o.platform_order_id, it.factory_order_id, sellerName(o), itemLabel(it), it.size, it.color, _trkEff(it)].some(t=>String(t||"").toLowerCase().includes(q)); });
+  return base;
+}
+function _trkSortFn(){
+  const urg=(a,b)=>((a.f.sla?a.f.sla.hrs:1e9)-(b.f.sla?b.f.sla.hrs:1e9)) || ((b.f.w??-1)-(a.f.w??-1));
+  return ({ urgent:urg,
+    wait:(a,b)=>((b.f.w??-1)-(a.f.w??-1)) || urg(a,b),
+    recent:(a,b)=>((a.f.w??1e9)-(b.f.w??1e9)) || urg(a,b),
+    oid:(a,b)=>String(a.r.o.platform_order_id||"").localeCompare(String(b.r.o.platform_order_id||""), undefined, {numeric:true}),
+    seller:(a,b)=>sellerName(a.r.o).localeCompare(sellerName(b.r.o)) || urg(a,b) })[TRK_VIEW.sort] || urg;
+}
 function renderTrack(){
-  const v = TRK_VIEW;
-  const base = trkNeedRows(v.all).map(r=>({ r, f:_trkFlag(r) }));
-  const cnt = { all:base.length, late:0, soon:0, wait:0, nopo:0 };
-  base.forEach(x=>["late","soon","wait","nopo"].forEach(k=>{ if(x.f[k]) cnt[k]++; }));
-  if(v.flt && !cnt[v.flt]) v.flt="";
-  const rows = base.filter(x=>!v.flt || x.f[v.flt]);
-  const byF = new Map(); for(const x of rows){ const k=x.r.it.factory_id||"none"; (byF.get(k)||byF.set(k,[]).get(k)).push(x); }
-  const facs = [...byF.entries()].sort((a,b)=>b[1].length-a[1].length);
-  if(v.fac && !byF.has(v.fac)) v.fac="";
-  const shown = facs.filter(([k])=>!v.fac || k===v.fac);
-  const MAXR = 300;
-  const kpi=(k,lb,col,tip)=>`<div class="kpi" title="${tip}" style="${(v.flt||"")===k?"outline:2px solid var(--accent)":""}" onclick="trkViewFlt('${k}')"><div class="n"${col&&cnt[k||"all"]?` style="color:var(--${col})"`:""}>${cnt[k||"all"]}</div><div class="t">${lb}</div></div>`;
   $("#view").innerHTML = `
   <h1>Cần lấy track</h1>
   <p class="sub">Sản phẩm <b>đã đẩy xưởng nhưng chưa có mã vận đơn</b> (tracking còn trống hoặc mới là ghi chú như «Xưởng ship», tên xưởng). Có tracking — up file, dán bảng hoặc điền từng dòng — là sản phẩm tự rời khỏi danh sách.</p>
-  <div class="kpis">
-    ${kpi("","SP cần lấy track","","Tất cả sản phẩm đang chờ tracking của xưởng")}
-    ${kpi("late","🔴 Quá hạn ship","red","Đã qua deadline ship mà chưa có mã vận đơn")}
-    ${kpi("soon","🟠 Đến hạn trong 48h","yellow","Còn dưới 48 giờ tới deadline ship")}
-    ${kpi("wait",`⏳ Chờ xưởng từ ${TRK_WAIT_DAYS} ngày`,"yellow","Đã đẩy xưởng từ "+TRK_WAIT_DAYS+" ngày trở lên mà xưởng chưa trả tracking")}
-    ${kpi("nopo","⚠ Chưa có PO","purple","Ô Order FFM (PO) còn trống — file tracking của xưởng chỉ khớp được theo Order ID")}
-  </div>
+  <div id="trkKpi"></div>
   <div class="card mb" id="trkCard">
     <div class="spread mb"><b style="font-size:15px">📦 Nhập tracking hàng loạt</b>${TRK?`<button class="btn btn-sm" onclick="trkClose()">✕ Đóng lần nhập này</button>`:""}</div>
     <p class="small muted" style="margin:0 0 10px">Chọn file tracking của xưởng (<b>.xlsx / .csv</b>, chọn được nhiều file một lúc) hoặc dán bảng copy từ sheet xưởng. Tool tự dò cột tracking và cột mã đơn, khớp theo <b>PO (Order FFM)</b> trước rồi tới <b>Order ID</b>. Luôn có bước xem trước rồi mới ghi.</p>
@@ -2909,17 +2918,57 @@ function renderTrack(){
       <select id="trkFac" title="Chỉ khớp với đơn của 1 xưởng — dùng khi mã PO có thể trùng giữa các xưởng" style="min-width:150px" onchange="trkSetFac(this.value)">
         <option value="">Khớp với mọi xưởng</option>${S.factories.map(x=>`<option value="${x.id}" ${(TRK?TRK.fid:TRK_VIEW.mf)===x.id?"selected":""}>Chỉ xưởng: ${esc(x.name)}</option>`).join("")}</select>
     </div>
+    ${isFFM()?`<div class="small muted" id="trkLast" style="margin-top:6px">${esc(_trkLastTxt())}</div>`:""}
     <div id="trkOut" class="mt"></div>
+  </div>
+  <div id="trkList"></div>`;
+  const fi=$("#trkFile"); if(fi) fi.onchange = e=>{ const fs=[...e.target.files]; e.target.value=""; trkLoadFiles(fs); };
+  trkRenderLists();
+  if(TRK) trkRender();
+}
+/* Vẽ riêng phần ô số + bộ lọc + danh sách (không đụng tới khung nhập / bảng xem trước đang mở) */
+function trkRenderLists(){
+  const kp=$("#trkKpi"), ls=$("#trkList"); if(!kp || !ls) return;
+  const v = TRK_VIEW;
+  const sellers=[...new Set(trkNeedRows(v.all).map(r=>sellerName(r.o)).filter(x=>x && x!=="—"))].sort((a,b)=>a.localeCompare(b));
+  if(v.seller && !sellers.includes(v.seller)) v.seller="";
+  const base = _trkBase();
+  const cnt = { all:base.length, late:0, soon:0, wait:0, nopo:0 };
+  base.forEach(x=>["late","soon","wait","nopo"].forEach(k=>{ if(x.f[k]) cnt[k]++; }));
+  if(v.flt && !cnt[v.flt]) v.flt="";
+  const rows = base.filter(x=>!v.flt || x.f[v.flt]);
+  const byF = new Map(); for(const x of rows){ const k=x.r.it.factory_id||"none"; (byF.get(k)||byF.set(k,[]).get(k)).push(x); }
+  const facs = [...byF.entries()].sort((a,b)=>b[1].length-a[1].length);
+  if(v.fac && !byF.has(v.fac)) v.fac="";
+  const shown = facs.filter(([k])=>!v.fac || k===v.fac);
+  const MAXR = 300, sortFn=_trkSortFn();
+  const kpi=(k,lb,col,tip)=>`<div class="kpi" title="${tip}" style="${(v.flt||"")===k?"outline:2px solid var(--accent)":""}" onclick="trkViewFlt('${k}')"><div class="n"${col&&cnt[k||"all"]?` style="color:var(--${col})"`:""}>${cnt[k||"all"]}</div><div class="t">${lb}</div></div>`;
+  kp.innerHTML = `<div class="kpis">
+    ${kpi("","SP cần lấy track","","Tất cả sản phẩm đang chờ tracking của xưởng (theo bộ lọc thời gian / seller / ô tìm bên dưới)")}
+    ${kpi("late","🔴 Quá hạn ship","red","Đã qua deadline ship mà chưa có mã vận đơn (chỉ tính SP có điền Deadline ship)")}
+    ${kpi("soon","🟠 Đến hạn trong 48h","yellow","Còn dưới 48 giờ tới deadline ship (chỉ tính SP có điền Deadline ship)")}
+    ${kpi("wait",`⏳ Chờ xưởng từ ${TRK_WAIT_DAYS} ngày`,"yellow","Đã đẩy xưởng từ "+TRK_WAIT_DAYS+" ngày trở lên mà xưởng chưa trả tracking")}
+    ${kpi("nopo","⚠ Chưa có PO","purple","Ô Order FFM (PO) còn trống — file tracking của xưởng chỉ khớp được theo Order ID")}
+  </div>`;
+  const opt=(val,cur,lb)=>`<option value="${val}" ${cur===val?"selected":""}>${lb}</option>`;
+  const anyF = v.q || v.age || v.seller || v.flt || v.fac || (v.sort && v.sort!=="urgent");
+  ls.innerHTML = `
+  <div class="flex mb">
+    <input id="trkQ" value="${esc(v.q||"")}" placeholder="🔎 Tìm Order ID / PO / seller / sản phẩm" style="min-width:250px" oninput="trkViewQ(this)">
+    <select title="Tính từ ngày đẩy xưởng (SP chưa có ngày đẩy thì tính từ ngày order)" onchange="TRK_VIEW.age=this.value;trkRenderLists()">
+      ${opt("",v.age||"","Mọi thời gian")}${opt("7",v.age,"Đẩy trong 7 ngày gần đây")}${opt("30",v.age,"Đẩy trong 30 ngày gần đây")}${opt("old",v.age,"Cũ hơn 30 ngày")}</select>
+    ${S.me.role!=="seller" && sellers.length>1 ? `<select onchange="TRK_VIEW.seller=this.value;trkRenderLists()"><option value="">Tất cả seller</option>${sellers.map(x=>`<option value="${esc(x)}" ${v.seller===x?"selected":""}>${esc(x)}</option>`).join("")}</select>`:""}
+    <select title="Thứ tự các dòng trong từng xưởng" onchange="TRK_VIEW.sort=this.value;trkRenderLists()">
+      ${opt("urgent",v.sort||"urgent","Xếp: gấp nhất trước")}${opt("wait",v.sort,"Xếp: chờ lâu nhất trước")}${opt("recent",v.sort,"Xếp: mới đẩy trước")}${opt("oid",v.sort,"Xếp: theo Order ID")}${opt("seller",v.sort,"Xếp: theo seller")}</select>
+    <label class="flex" style="margin:0"><input type="checkbox" style="width:auto" ${v.all?"checked":""} onchange="TRK_VIEW.all=this.checked;trkRenderLists()"> Gồm cả SP chưa đẩy xưởng</label>
+    ${anyF?`<button class="btn btn-sm" onclick="trkViewReset()">✕ Xoá lọc</button>`:""}
   </div>
   <div class="flex mb">
     <button class="btn btn-sm ${!v.fac?"btn-p":""}" style="width:auto;margin:0" onclick="trkViewFac('')">Tất cả xưởng · ${rows.length}</button>
     ${facs.map(([k,xs])=>{ const nl=xs.filter(x=>x.f.late).length; return `<button class="btn btn-sm ${v.fac===k?"btn-p":""}" style="width:auto;margin:0" onclick="trkViewFac('${k}')">${esc(_trkFacName(k))} · ${xs.length}${nl?` <b style="color:${v.fac===k?"#fff":"var(--red)"}">(${nl} quá hạn)</b>`:""}</button>`; }).join("")}
-    <label class="flex" style="margin:0"><input type="checkbox" style="width:auto" ${v.all?"checked":""} onchange="TRK_VIEW.all=this.checked;renderTrack()"> Gồm cả SP chưa đẩy xưởng</label>
-    ${v.flt?`<button class="btn btn-sm" onclick="trkViewFlt('')">✕ Bỏ lọc</button>`:""}
   </div>
   ${shown.map(([k,xs])=>{
-    /* gấp nhất lên đầu: hạn ship gần nhất trước, sau đó tới chờ lâu nhất */
-    const srt=xs.slice().sort((a,b)=>((a.f.sla?a.f.sla.hrs:1e9)-(b.f.sla?b.f.sla.hrs:1e9)) || ((b.f.w??-1)-(a.f.w??-1)));
+    const srt=xs.slice().sort(sortFn);
     return `
   <div class="card mb">
     <div class="spread mb"><b>${esc(_trkFacName(k))} — ${xs.length} SP</b>
@@ -2927,11 +2976,12 @@ function renderTrack(){
       <button class="btn btn-sm" onclick="trkCopyKeys('${k}')" title="Copy danh sách PO (dòng nào chưa có PO thì lấy Order ID) để dán vào ô tìm kiếm trên web xưởng">📋 Copy mã</button>
       <button class="btn btn-sm" onclick="trkExportNeed('${k}')" title="Xuất danh sách này ra Excel — có sẵn cột Tracking để trống: điền xong up ngược lại là khớp">⇩ Xuất danh sách (.xlsx)</button></span></div>
     <div class="tw"><table class="otbl">
-      <tr><th>Hạn ship</th><th>Chờ xưởng</th><th>Ngày đẩy</th><th>Order ID</th><th>PO (Order FFM)</th><th>Seller</th><th>Sản phẩm</th><th>Size</th><th>Màu</th><th>SL</th><th>Đang ghi</th><th>Điền tracking</th></tr>
+      <tr><th>Hạn ship</th><th>Chờ xưởng</th><th>Ngày đẩy</th><th>Ngày order</th><th>Order ID</th><th>PO (Order FFM)</th><th>Seller</th><th>Sản phẩm</th><th>Size</th><th>Màu</th><th>SL</th><th>Ô tracking hiện tại</th><th>Điền tracking</th></tr>
       ${srt.slice(0,MAXR).map(({r,f})=>{ const cur=_trkEff(r.it); const canE=isFFM()||canEditOrder(r.o); return `<tr id="trkrow_${r.it.id}">
         <td class="small ${f.sla?f.sla.cls:""}" style="white-space:nowrap">${f.sla?f.sla.txt:'<span class="muted">—</span>'}</td>
         <td class="small" style="white-space:nowrap${f.wait?";color:var(--red);font-weight:600":""}">${f.w==null?"":f.w+" ngày"}</td>
-        <td class="small">${esc(String(r.it.pushed_at||"").slice(0,10))}</td>
+        <td class="small" style="white-space:nowrap">${esc(String(r.it.pushed_at||"").slice(0,10))}</td>
+        <td class="small" style="white-space:nowrap">${esc(String(r.o.order_date||"").slice(0,10))}</td>
         <td><a href="#" onclick="openOrder('${r.o.id}');return false">${esc(r.o.platform_order_id)}</a></td>
         <td class="small">${f.nopo?'<span class="badge b-purple">chưa có PO</span>':esc(r.it.factory_order_id)}</td>
         <td class="small">${esc(sellerName(r.o))}</td>
@@ -2940,13 +2990,17 @@ function renderTrack(){
         <td class="small muted">${esc(cur)}</td>
         <td>${canE?`<input data-id="${r.it.id}" placeholder="dán mã vận đơn" style="width:180px" onchange="trkQuickSave(this)">`:""}</td></tr>`; }).join("")}
     </table></div>
-    ${xs.length>MAXR?`<p class="small muted mt">Đang hiện ${MAXR}/${xs.length} dòng gấp nhất — bấm Xuất danh sách để lấy đủ.</p>`:""}
-  </div>`; }).join("") || `<div class="card">${v.flt?"Không có sản phẩm nào khớp bộ lọc.":"Không còn sản phẩm nào chờ tracking 🎉"}</div>`}`;
-  const fi=$("#trkFile"); if(fi) fi.onchange = e=>{ const fs=[...e.target.files]; e.target.value=""; trkLoadFiles(fs); };
-  if(TRK) trkRender();
+    ${xs.length>MAXR?`<p class="small muted mt">Đang hiện ${MAXR}/${xs.length} dòng đầu theo thứ tự đang xếp — dùng ô tìm / bộ lọc để thu hẹp, hoặc bấm Xuất danh sách để lấy đủ.</p>`:""}
+  </div>`; }).join("") || `<div class="card">${(anyF||v.all)?"Không có sản phẩm nào khớp bộ lọc.":"Không còn sản phẩm nào chờ tracking 🎉"}</div>`}`;
 }
-function trkViewFac(k){ TRK_VIEW.fac=k; renderTrack(); }
-function trkViewFlt(k){ TRK_VIEW.flt=k; renderTrack(); }
+function trkViewFac(k){ TRK_VIEW.fac=k; trkRenderLists(); }
+function trkViewFlt(k){ TRK_VIEW.flt=k; trkRenderLists(); }
+function trkViewReset(){ Object.assign(TRK_VIEW, { fac:"", flt:"", q:"", age:"", seller:"", sort:"urgent" }); trkRenderLists(); }
+/* Ô tìm: chờ ngừng gõ rồi mới vẽ lại, giữ con trỏ trong ô */
+function trkViewQ(el){
+  TRK_VIEW.q=el.value; clearTimeout(window._trkQT);
+  window._trkQT=setTimeout(()=>{ trkRenderLists(); const e=document.getElementById("trkQ"); if(e){ e.focus(); try{ e.setSelectionRange(e.value.length, e.value.length); }catch(_){} } }, 300);
+}
 /* Điền tracking cho 1 dòng ngay trên bảng (dán mã rồi Tab / Enter) */
 async function trkQuickSave(el){
   const id=el.dataset.id; const it=S.items.find(x=>x.id===id); if(!it) return;
@@ -2981,7 +3035,7 @@ async function trkChase(k){
   <textarea rows="14" style="width:100%;font-size:12.5px">${esc(text)}</textarea>`);
 }
 function trkClose(){ TRK=null; renderTrack(); }
-function _trkNeedOf(k){ return trkNeedRows(TRK_VIEW.all).filter(r=>(r.it.factory_id||"none")===k && (!TRK_VIEW.flt || _trkFlag(r)[TRK_VIEW.flt])); }
+function _trkNeedOf(k){ return _trkBase().filter(x=>(x.r.it.factory_id||"none")===k && (!TRK_VIEW.flt || x.f[TRK_VIEW.flt])).sort(_trkSortFn()).map(x=>x.r); }
 function trkExportNeed(k){
   const rs=_trkNeedOf(k); if(!rs.length) return toast("Không có dòng nào.", true);
   const nm=_trkFacName(k);
@@ -3081,7 +3135,10 @@ async function trkFromApi(factory){
     const head=["order_fulfill_id","order_id","tracking_number","carrier","tracking_status","status"];
     const aoa=[head, ...(data.rows||[]).map(r=>head.map(h=>_trkCell(r[h])))];
     if(aoa.length<2){ out=$("#trkOut"); if(out) out.innerHTML=""; return toast(`API ${NAME} không có đơn nào trong ${data.days} ngày gần đây.`, true); }
-    TRK={ srcs:[trkSrc(`API ${NAME} · ${data.count} đơn (${data.days} ngày gần nhất)`, aoa)], fid, res:null, show:"" };
+    _trkLastSet(factory);
+    const src=trkSrc(`API ${NAME} · ${data.count} đơn (${data.days} ngày gần nhất)`, aoa);
+    const fx=(S.factories||[]).find(f=>new RegExp(factory,"i").test(f.name||"")); src.facId=fx?fx.id:"";   /* xưởng của nguồn này trong Danh mục */
+    TRK={ srcs:[src], fid, res:null, show:"" };
     if(S.view==="track") renderTrack();
     await trkRun();
   }catch(e){ out=$("#trkOut"); if(out) out.innerHTML=""; toast("Không lấy được từ API "+NAME+": "+(e.message||e), true); }
@@ -3099,6 +3156,7 @@ async function trkFromWebhook(){
     const { data, error } = await db.from("factory_webhook_events").select("source,order_ref,tracking_number,carrier,event,received_at")
       .gte("received_at", since).order("received_at",{ascending:false}).limit(3000);
     if(error) throw new Error(_trkHookErr(error));
+    _trkLastSet("hook");
     const all=data||[], good=all.filter(r=>r.tracking_number && r.order_ref);
     out=$("#trkOut"); if(out) out.innerHTML="";
     if(!all.length) return toast("Chưa có tin nào xưởng gửi về trong 30 ngày gần đây.", true);
@@ -3135,6 +3193,9 @@ async function trkPasteGo(){
 function trkSetFac(v){ TRK_VIEW.mf=v||""; if(!TRK) return; TRK.fid=v||""; trkRun(); }
 function trkSetCol(i, kind, v){ if(!TRK||!TRK.srcs[i]) return; TRK.srcs[i][kind==="t"?"tSel":"kSel"] = (v==="" ? null : Number(v)); trkRun(); }
 function trkShowSt(st){ if(!TRK) return; TRK.show = (TRK.show===st ? "" : st); trkRender(); }
+function trkSortBy(k){ if(!TRK) return; const c=TRK.sort||{}; TRK.sort = (c.k===k) ? (c.dir===1 ? { k, dir:-1 } : null) : { k, dir:1 }; trkRender(); }   /* bấm lần 3 = về thứ tự mặc định */
+function trkPrevQ(el){ if(!TRK) return; TRK.q=el.value; clearTimeout(window._trkPQT);
+  window._trkPQT=setTimeout(()=>{ trkRender(); const e=document.getElementById("trkPQ"); if(e){ e.focus(); try{ e.setSelectionRange(e.value.length, e.value.length); }catch(_){} } }, 300); }
 
 /* ---------- Dò cột + khớp ---------- */
 function trkIndex(fid){
@@ -3205,12 +3266,18 @@ function trkMatch(){
       if(!hit){
         src.kcols.forEach(c=>{ const v=String(row[c]||"").trim().replace(/^'+/,""); if(v && v.length<=60 && !/["\\]/.test(v)) missVals.add(v); });
         const lostK=src.lost && src.kcols.some(c=>src.lost.has(r+":"+c));
-        loose.push({...base, trk, st:"notfound", note: !src.kcols.length ? "Chưa xác định được cột mã đơn — chọn cột ở trên"
+        let near="";
+        for(const c of src.kcols){ const k=_trkKey(row[c]); if(!k) continue;
+          const vs=[k.replace(/-\d{1,2}$/,""), k.replace(/^[a-z]{1,6}[-_]/,""), k.replace(/^[a-z]{1,6}[-_]/,"").replace(/-\d{1,2}$/,"")].filter(v=>v && v!==k && v.length>=8);
+          for(const v of vs){ const hitI=idx.po.get(v)||idx.oid.get(v); if(hitI && hitI.length){ const oo=maps.order[hitI[0].order_id]; near=oo?String(oo.platform_order_id||"").trim():v; break; }
+            missVals.add(v); }
+          if(near) break; }
+        loose.push({...base, trk, st:"notfound", note: near ? `Gần giống đơn ${near} (mã trong file có thêm tiền tố / đuôi, có thể là đơn làm lại) — nếu đúng thì điền tay ở đơn đó` : !src.kcols.length ? "Chưa xác định được cột mã đơn — chọn cột ở trên"
           : (lostK || src.kcols.some(c=>TRK_SCI.test(String(row[c]||"").trim()))) ? "Excel đã làm tròn mã đơn (cột đang ở dạng Số) — cần để dạng Text" : (TRK.fid ? "Không có ở xưởng đang chọn" : "") });
         continue; }
       if(hit.k.length>=10 && _trkCmp(trk).includes(hit.k)){ loose.push({...base, trk, key:hit.raw||hit.k, st:"bad", note:"Giá trị này chứa chính mã đơn — không phải mã vận đơn (chọn lại cột tracking)"}); continue; }
       const gk=hit.by+"|"+hit.k; let g=groups.get(gk);
-      if(!g){ g={ by:hit.by, k:hit.k, key:hit.raw||hit.k, items:(hit.by==="PO"?idx.po:idx.oid).get(hit.k), trks:new Map(), src:src.name, rowNo:r+1 }; groups.set(gk,g); }
+      if(!g){ g={ by:hit.by, k:hit.k, key:hit.raw||hit.k, items:(hit.by==="PO"?idx.po:idx.oid).get(hit.k), trks:new Map(), src:src.name, rowNo:r+1, fac:src.facId||"" }; groups.set(gk,g); }
       const car=src.ccol>=0 ? String(row[src.ccol]||"").trim() : "";
       if(!g.trks.has(_trkCmp(trk))) g.trks.set(_trkCmp(trk), { trk, car });
     }
@@ -3227,8 +3294,8 @@ function trkMatch(){
       if([...g.trks.keys()].every(t=>have.has(t))) g.st="same";
       else { g.st="manual"; g.note=`File có ${g.trks.size} tracking khác nhau cho cùng 1 mã`; }
       continue; }
-    if(g.by==="PO" && new Set(live.map(it=>{ const o=maps.order[it.order_id]; return o?o.platform_order_id:""; })).size>1){
-      g.st="manual"; g.note="PO này đang nằm ở nhiều Order ID khác nhau — chọn 1 xưởng ở trên để thu hẹp"; continue; }
+    if(g.by==="PO"){ const oids=new Map(); live.forEach(it=>{ const o=maps.order[it.order_id]; const raw=o?String(o.platform_order_id||"").trim():""; oids.set(_trkKey(raw), raw); });
+      if(oids.size>1){ g.st="manual"; g.note=`PO này đang gắn với ${oids.size} Order ID khác nhau (${[...oids.values()].slice(0,4).join(", ")}) — kiểm tra ô Order FFM của các đơn đó, hoặc chọn 1 xưởng ở trên để thu hẹp`; continue; } }
     const T=_trkCmp(g.trk);
     const same=live.filter(it=>_trkCmp(_trkEff(it))===T);
     const pending=live.filter(it=>_trkCmp(_trkEff(it))!==T && trkShape(_trkEff(it))!=="ok");
@@ -3241,6 +3308,10 @@ function trkMatch(){
       g.st="new"; g.targets=pending; g.cur=_trkEff(pending[0]); }
     else if(same.length){ g.st="same"; g.cur=g.trk; }
     else { g.st="conflict"; g.targets=diff; g.cur=[...new Set(diff.map(_trkEff))].join(" · "); }
+    /* Nguồn là API của 1 xưởng cụ thể mà SP trong tool lại đang gán xưởng khác -> để người dùng quyết */
+    if(g.fac && (g.st==="new" || g.st==="conflict")){ const wrong=g.targets.filter(it=>it.factory_id && it.factory_id!==g.fac);
+      if(wrong.length){ g.st="manual"; g.facShow=g.targets.slice();
+        g.note=`Trong tool sản phẩm này đang gán xưởng «${_trkFacName(wrong[0].factory_id)}», còn tracking này lấy từ ${_trkFacName(g.fac)} — kiểm tra lại xưởng của sản phẩm (hoặc đơn có SP ở 2 xưởng) rồi điền tay`; g.targets=[]; } }
   }
   /* 1 sản phẩm bị 2 dòng trỏ tới với 2 tracking khác nhau -> không tự quyết */
   const seen=new Map();
@@ -3314,15 +3385,21 @@ function trkRender(){
       <td class="small muted">${esc(s.tcol<0 ? (s.tSel===-1?"Đã bỏ qua":(s.note||"Không thấy cột tracking")) : (s.tSel==null ? (s.note||"") : ""))}</td></tr>`; };
   const used=TRK.srcs.map((s,i)=>[s,i]).filter(([s])=>s.tcol>=0 || s.tSel===-1), skipped=TRK.srcs.map((s,i)=>[s,i]).filter(([s])=>s.tcol<0 && s.tSel!==-1);
   const srcHead=`<tr><th>File · sheet</th><th>Dòng</th><th>Cột tracking</th><th>Cột mã đơn (PO / Order ID)</th><th></th></tr>`;
+  const ord={notfound:0,manual:1,bad:2,conflict:3,new:4,same:5,cancelled:6};
   const cnt={new:0,conflict:0,same:0,notfound:0,manual:0,bad:0,cancelled:0}; let nNew=0, nConf=0;
   res.groups.forEach(g=>{ cnt[g.st]++; if(g.st==="new") nNew+=g.targets.length; if(g.st==="conflict") nConf+=g.targets.length; });
   res.loose.forEach(l=>cnt[l.st]++);
-  const lines=[...res.groups.map(g=>({ st:g.st, by:g.by, key:g.key, oid:g.oid, orderId:g.orderId, trk:g.trk, cur:g.cur, n:(g.targets.length||g.items.length), note:g.note||"", src:g.src, rowNo:g.rowNo })),
-               ...res.loose.map(l=>({ ...l, by:"", oid:"", orderId:"", cur:"", n:"" }))];
-  const ord={notfound:0,manual:1,bad:2,conflict:3,new:4,same:5,cancelled:6};
-  lines.sort((a,b)=>ord[a.st]-ord[b.st]);
+  const lines=[...res.groups.map(g=>({ st:g.st, by:g.by, key:g.key, oid:g.oid, orderId:g.orderId, trk:g.trk, cur:g.cur, n:(g.targets.length||g.items.length), note:g.note||"", src:g.src, rowNo:g.rowNo, so:ord[g.st], pushed:String(((g.targets[0]||g.items[0]||{}).pushed_at)||"").slice(0,10),
+                 fac:[...new Set((g.targets.length?g.targets:(g.facShow||g.items.filter(it=>it.item_status!=="cancelled"))).map(it=>it.factory_id?_trkFacName(it.factory_id):"(chưa gán)"))].join(", ") })),
+               ...res.loose.map(l=>({ ...l, by:"", oid:"", orderId:"", cur:"", n:"", fac:"", pushed:"", so:ord[l.st] }))];
+  lines.sort((a,b)=>a.so-b.so);
   TRK.lines=lines;
-  const vis=lines.filter(l=>!TRK.show || l.st===TRK.show); const MAXL=400;
+  const pq=String(TRK.q||"").trim().toLowerCase();
+  let vis=lines.filter(l=>(!TRK.show || l.st===TRK.show) && (!pq || [l.key,l.oid,l.trk,l.cur,l.fac,l.note].some(t=>String(t||"").toLowerCase().includes(pq))));
+  const sk=TRK.sort&&TRK.sort.k, sd=(TRK.sort&&TRK.sort.dir)||1;
+  if(sk) vis=vis.slice().sort((a,b)=>{ const x=a[sk]??"", y=b[sk]??""; return ((typeof x==="number"&&typeof y==="number") ? x-y : String(x).localeCompare(String(y), undefined, {numeric:true}))*sd; });
+  const th=(k,lb,tip)=>`<th style="cursor:pointer;white-space:nowrap" title="${tip||"Bấm để sắp xếp theo cột này"}" onclick="trkSortBy('${k}')">${lb}${sk===k?(sd>0?" ▲":" ▼"):""}</th>`;
+  const MAXL=400;
   const d=TRK.done;
   out.innerHTML=`
   ${d?`<div class="card mb" style="border-color:var(--green)"><div class="flex"><b>✅ Đã ghi tracking cho ${d.n} sản phẩm (${d.orders} đơn).</b>
@@ -3340,25 +3417,27 @@ function trkRender(){
     ${!lines.length && !res.empty?`<span class="small muted">Chưa đọc được dòng tracking nào — kiểm tra lại cột tracking ở bảng trên.</span>`:""}
   </div>
   <div class="flex mb">
-    <button class="btn btn-p" style="width:auto;margin:0" ${(nNew||nConf)?"":"disabled"} onclick="trkApply()">✅ Ghi tracking vào tool${nNew?` (${nNew} SP)`:""}</button>
+    <button class="btn btn-p" style="width:auto;margin:0${(nNew||nConf)?"":";opacity:.45;cursor:not-allowed"}" ${(nNew||nConf)?"":'disabled title="Chưa có dòng nào ghi được"'} onclick="trkApply()">✅ Ghi tracking vào tool${nNew?` (${nNew} SP)`:""}</button>
     ${nConf?`<label class="flex" style="margin:0"><input type="checkbox" id="trkOver" style="width:auto"> Ghi đè cả ${nConf} SP đang có tracking khác</label>`:""}
     ${isFFM()?`<label class="flex" style="margin:0"><input type="checkbox" id="trkSt" style="width:auto" checked> Chuyển trạng thái sang «Có tracking»</label>`:""}
     ${(cnt.notfound+cnt.manual+cnt.bad)?`<button class="btn btn-sm" onclick="trkExportMiss()">⇩ Xuất dòng chưa khớp (.xlsx)</button>`:""}
+    ${lines.length>12?`<input id="trkPQ" value="${esc(TRK.q||"")}" placeholder="🔎 Tìm trong bảng xem trước" style="min-width:210px" oninput="trkPrevQ(this)">`:""}
   </div>
+  ${!vis.length && lines.length?`<p class="small muted">Không có dòng nào khớp ô tìm / bộ lọc.</p>`:""}
   ${vis.length?`<div class="tw"><table>
-    <tr><th>Kết quả</th><th>Khớp theo</th><th>Mã trong file</th><th>Order ID</th><th>Tracking trong file</th><th>Đang có trong tool</th><th>SP</th><th>Ghi chú</th><th>Nguồn</th></tr>
+    <tr>${th("so","Kết quả")}${th("by","Khớp theo")}${th("key","Mã trong file")}${th("oid","Order ID")}${th("trk","Tracking mới")}${th("cur","Ô tracking hiện tại","Nội dung đang nằm ở ô Tracking của sản phẩm — thường là ghi chú như «Xưởng ship» hoặc tên xưởng do seller gõ. Bấm để sắp xếp")}${th("fac","Xưởng trong tool","Xưởng đang gán cho sản phẩm trong tool. Bấm để sắp xếp")}${th("pushed","Ngày đẩy")}${th("n","SP")}${th("note","Ghi chú")}${th("rowNo","Nguồn")}</tr>
     ${vis.slice(0,MAXL).map(l=>`<tr><td><span class="badge ${TRK_ST[l.st][1]}">${TRK_ST[l.st][0]}</span></td>
       <td class="small">${esc(l.by)}</td><td class="small">${esc(l.key)}</td>
       <td class="small">${l.orderId?`<a href="#" onclick="openOrder('${l.orderId}');return false">${esc(l.oid)}</a>`:""}</td>
-      <td class="small">${esc(l.trk)}</td><td class="small muted">${esc(l.cur)}</td><td class="center small">${l.n}</td>
+      <td class="small">${esc(l.trk)}</td><td class="small muted">${esc(l.cur)}</td><td class="small">${esc(l.fac||"")}</td><td class="small" style="white-space:nowrap">${esc(l.pushed||"")}</td><td class="center small">${l.n}</td>
       <td class="small">${esc(l.note)}</td><td class="small muted">${esc(l.src)} · dòng ${l.rowNo}</td></tr>`).join("")}
   </table></div>${vis.length>MAXL?`<p class="small muted mt">Đang hiện ${MAXL}/${vis.length} dòng.</p>`:""}`:""}`;
 }
 function trkExportMiss(){
   const ls=((TRK&&TRK.lines)||[]).filter(l=>["notfound","manual","bad"].includes(l.st));
   if(!ls.length) return toast("Không có dòng nào.", true);
-  xlsxDownload(`tracking_chua_khop_${today()}.xlsx`, ["Kết quả","Nguồn","Dòng","Mã trong file","Order ID","Tracking","Ghi chú"],
-    ls.map(l=>[TRK_ST[l.st][0], l.src, l.rowNo, l.key, l.oid||"", l.trk, l.note||""]), "Chua khop");
+  xlsxDownload(`tracking_chua_khop_${today()}.xlsx`, ["Kết quả","Nguồn","Dòng","Mã trong file","Order ID","Tracking","Xưởng trong tool","Ghi chú"],
+    ls.map(l=>[TRK_ST[l.st][0], l.src, l.rowNo, l.key, l.oid||"", l.trk, l.fac||"", l.note||""]), "Chua khop");
 }
 function trkShowUpdated(){
   const ks=(TRK&&TRK.done&&TRK.done.trks)||[]; if(!ks.length) return;
