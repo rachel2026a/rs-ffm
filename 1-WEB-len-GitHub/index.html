@@ -212,7 +212,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v4.03</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v4.04</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -1980,7 +1980,20 @@ async function saveItemFFM(id){
   Object.assign(it, patch);
   const _o = maps.order[it.order_id];
   if(_o) await syncItemTracking(it, _o);
-  buildRows(); toast("Đã lưu phần FFM."); closeModal(); go(S.view);
+  buildRows();
+  { const dup=(patch.factory_order_id && _o) ? _poUsedElsewhere(it, _o) : "";
+    toast(dup ? `Đã lưu — ⚠ Order FFM «${patch.factory_order_id}» đang được dùng ở đơn khác (Order ID ${dup}). Kiểm tra lại có dán nhầm không.` : "Đã lưu phần FFM.", !!dup); }
+  closeModal(); go(S.view);
+}
+/* Order FFM (PO) vừa nhập có đang dùng ở đơn mang Order ID KHÁC không -> trả về các Order ID đó (để nhắc ngay lúc nhập, tránh dán nhầm mã của dòng trước) */
+function _poUsedElsewhere(it, o){
+  try{
+    const k=_trkKey(it.factory_order_id); if(k.length<5) return "";
+    const me=_trkKey(o.platform_order_id); const ids=new Set();
+    for(const x of S.items){ if(x.id===it.id || x.item_status==="cancelled" || _trkKey(x.factory_order_id)!==k) continue;
+      const xo=maps.order[x.order_id]; if(xo && _trkKey(xo.platform_order_id)!==me) ids.add(String(xo.platform_order_id)); }
+    return [...ids].slice(0,3).join(", ");
+  }catch(_){ return ""; }
 }
 async function addItem(orderId){
   const { data, error } = await db.from("order_items").insert({ order_id: orderId, quantity: 1 }).select().single();
@@ -3690,19 +3703,23 @@ async function trkUndo(){
      order_items.platform_synced_at = lúc bấm «Đã up sàn»
      order_items.tracking_prev      = mã cũ, khi mã bị đổi sau đó
    Chưa chạy file SQL thì tab chỉ hiện dòng hướng dẫn, mọi phần khác của tool chạy như cũ. */
-const NT_VIEW = { tab:"todo", flt:"", acc:null, seller:"", mine:null, q:"" };
+const NT_VIEW = { tab:"todo", flt:"", acc:null, seller:"", mine:null, q:"", sort:"urgent" };
 let NT_CUR = [], NT_BUSY = false; const NT_COPIED = new Set();
+const NT_SEL = new Set(); let NT_LAST = "";   /* các dòng đang được tích (theo khoá dòng) + dòng vừa tích gần nhất (để Shift chọn dải) */
 const NT_TITLE = (typeof document!=="undefined" && document.title) || "RSA FFM";
 function ntReady(){ return /platform_synced_at/.test(S._selCols||"") || !!(S.items && S.items.length && ("platform_synced_at" in S.items[0])); }
 const _ntCmp = t => String(t||"").replace(/\s+/g,"").toLowerCase();
 function _ntAgo(ts){ if(!ts) return ""; const m=Math.floor((Date.now()-ts)/60000); if(m<1) return "vừa xong"; if(m<60) return m+" phút trước"; const h=Math.floor(m/60); if(h<24) return h+" giờ trước"; return Math.floor(h/24)+" ngày trước"; }
-/* Hãng vận chuyển: lấy ô Carrier nếu xưởng có ghi; kèm gợi ý theo DẠNG MÃ (chỉ là gợi ý) */
+/* Hãng vận chuyển: ô Carrier nếu đúng là tên hãng; không thì đoán theo DẠNG MÃ (chỉ là gợi ý) */
+const NT_CARRIERS = /^(usps|ups|fedex|fed ex|dhl|ontrac|lasership|amazon|gls|uniuni|speedx|gofo|yunexpress|yun express|yanwen|4px|china post|royal mail|canada post|australia post)\b/i;
 function ntCarrier(carrier, trk){
   const c=String(carrier||"").trim(); const t=String(trk||"").replace(/[\s\-]/g,"").toUpperCase(); let g="";
   if(/^1Z[0-9A-Z]{16}$/.test(t)) g="UPS";
   else if(/^9[2345]\d{18,24}$/.test(t) || /^420\d{5,9}9[2345]\d{18,24}$/.test(t) || /^[A-Z]{2}\d{9}US$/.test(t)) g="USPS";
   else if(/^\d{12}$/.test(t) || /^\d{15}$/.test(t)) g="FedEx";
-  return { carrier:c, guess:g };
+  /* Ô Carrier nhiều khi xưởng ghi tên xưởng / tên tuyến (vd «FASTUS») chứ không phải hãng -> chỉ tin khi đúng là tên hãng */
+  const known = !!c && NT_CARRIERS.test(c);
+  return { carrier:c, guess:g, known, show: known ? c : (g || c) };
 }
 /* 1 dòng = 1 đơn (Order ID + TK bán) + 1 mã vận đơn; các SP đi chung mã gom vào 1 dòng.
    kind: "todo" = chưa up sàn · "done" = đã bấm «Đã up sàn» trong hôm nay */
@@ -3765,16 +3782,23 @@ function renderNewTrk(){
   const base = done ? Dn : T.filter(x=>!v.flt || (v.flt==="late" ? isLate(x) : isSoon(x)));
   const accs=new Map(); base.forEach(x=>{ const k=x.o.selling_account_id||""; const e=accs.get(k)||accs.set(k,{ n:0, name:_ntAccName(x.o) }).get(k); e.n++; });
   if(v.acc!=null && !accs.has(v.acc)) v.acc=null;
-  const rows = base.filter(x=> v.acc==null || (x.o.selling_account_id||"")===v.acc)
-    .sort(done ? (a,b)=>b.sy-a.sy : (a,b)=>((a.sla?a.sla.hrs:1e9)-(b.sla?b.sla.hrs:1e9)) || (b.at-a.at));
+  const urg=(a,b)=>((a.sla?a.sla.hrs:1e9)-(b.sla?b.sla.hrs:1e9)) || (b.at-a.at);
+  const sortFn = ({ new:(a,b)=>(b.at-a.at) || urg(a,b),
+    oid:(a,b)=>String(a.o.platform_order_id||"").localeCompare(String(b.o.platform_order_id||""), undefined, {numeric:true}) || urg(a,b),
+    prod:(a,b)=>_ntLabel(a).localeCompare(_ntLabel(b)) || urg(a,b) })[v.sort] || (done ? (a,b)=>b.sy-a.sy : urg);
+  const rows = base.filter(x=> v.acc==null || (x.o.selling_account_id||"")===v.acc).sort(sortFn);
   const MAXR=300; NT_CUR=rows.slice(0,MAXR);
-  const canOf=x=>isFFM() || canEditOrder(x.o); const nCan=NT_CUR.filter(canOf).length;
+  const canOf=x=>isFFM() || canEditOrder(x.o);
+  /* chỉ giữ dấu tích ở các dòng đang hiện và được quyền sửa (đổi bộ lọc / dòng đã rời danh sách thì tự bỏ tích) */
+  { const keys=new Set(NT_CUR.filter(canOf).map(x=>x.k)); for(const k of [...NT_SEL]) if(!keys.has(k)) NT_SEL.delete(k); }
+  const selN=NT_SEL.size, canN=NT_CUR.filter(canOf).length, allSel=canN>0 && selN===canN;
   const anyF = v.q || v.flt || v.acc!=null || v.seller;
   const kpi=(on,n,lb,col,tip,act)=>`<div class="kpi" title="${tip}" style="${on?"outline:2px solid var(--accent)":""}" onclick="${act}"><div class="n"${col&&n?` style="color:var(--${col})"`:""}>${n}</div><div class="t">${lb}</div></div>`;
-  const cp=val=>`<a href="#" data-c="${esc(val)}" title="Bấm để copy" style="font-family:ui-monospace,Consolas,monospace;text-decoration:none" onclick="ntCopy(this);return false">${esc(val)}${NT_COPIED.has(String(val))?' <span class="muted">✓</span>':""}</a>`;
+  const cp=(val,i)=>`<a href="#" data-c="${esc(val)}"${i!=null?` data-i="${i}"`:""} title="Bấm để copy" style="font-family:ui-monospace,Consolas,monospace;text-decoration:none" onclick="ntCopy(this);return false">${esc(val)}${NT_COPIED.has(String(val))?' <span class="muted">✓</span>':""}</a>`;
   const carCell=x=>{ const c=ntCarrier((x.its.find(i=>String(i.carrier||"").trim())||{}).carrier, x.trk);
-    if(c.carrier) return esc(c.carrier)+(c.guess && c.guess.toUpperCase()!==c.carrier.toUpperCase()?` <span class="small muted" title="Xưởng ghi hãng ${esc(c.carrier)}; mã dạng này thường là của ${c.guess} — kiểm tra lại khi chọn hãng trên sàn">· mã dạng ${c.guess}</span>`:"");
-    return c.guess ? `${c.guess} <span class="small muted" title="Xưởng không ghi hãng — tool đoán theo dạng mã, kiểm tra lại khi chọn hãng trên sàn">(gợi ý)</span>` : `<span class="muted">—</span>`; };
+    if(!c.show) return `<span class="muted">—</span>`;
+    if(c.known) return esc(c.show);
+    return c.guess ? `${c.guess} <span class="small muted" title="${c.carrier?`Ô hãng đang ghi «${esc(c.carrier)}» — không phải tên hãng vận chuyển. `:""}Tool đoán hãng theo dạng mã, kiểm tra lại khi chọn hãng trên sàn">(gợi ý)</span>` : esc(c.show); };
   /* FFM / Admin: ai còn tồn bao nhiêu */
   let sum="";
   if(!seller){ const g=new Map(); for(const x of ntRows("todo")){ const nm=sellerName(x.o); const e=g.get(nm)||g.set(nm,{ n:0, late:0, old:Date.now() }).get(nm); e.n++; if(isLate(x)) e.late++; if(x.at) e.old=Math.min(e.old,x.at); }
@@ -3795,17 +3819,25 @@ function renderNewTrk(){
     ${seller?`<button class="btn btn-sm${mine?" btn-p":""}" title="Bật: chỉ đơn do bạn đứng tên. Tắt: xem cả các đơn bạn được quyền xem" onclick="ntMine()">👤 Đơn của tôi</button>`:""}
     ${!mine && sellers.length>1?`<select title="Lọc theo seller đứng tên đơn" onchange="ntSeller(this.value)"><option value="">Tất cả seller</option>${sellers.map(x=>`<option value="${esc(x)}" ${v.seller===x?"selected":""}>${esc(x)}</option>`).join("")}</select>`:""}
     ${rows.length?`<button class="btn btn-sm" onclick="ntExport()" title="Xuất các dòng đang hiện ra Excel: TK bán, Order ID, Tracking, Hãng…">⇩ Xuất Excel (${rows.length})</button>`:""}
-    ${!done && nCan>1?`<button class="btn btn-sm" onclick="ntMarkAll()" title="Đánh dấu Đã up sàn cho mọi dòng đang hiện (sau khi đã up hết lên sàn)">✓ Đã up tất cả đang hiện (${nCan})</button>`:""}
+    <select title="Thứ tự các dòng" onchange="NT_VIEW.sort=this.value;renderNewTrk()">${[["urgent",done?"Xếp: mới đánh dấu trước":"Xếp: gấp nhất trước"],["new","Xếp: mới có tracking trước"],["oid","Xếp: theo Order ID"],["prod","Xếp: theo sản phẩm"]].map(([k,lb])=>`<option value="${k}" ${(v.sort||"urgent")===k?"selected":""}>${lb}</option>`).join("")}</select>
     ${anyF?`<button class="btn btn-sm" onclick="ntReset()">✕ Xoá lọc</button>`:""}
   </div>
   ${accs.size>1?`<div class="flex mb"><button class="btn btn-sm${v.acc==null?" btn-p":""}" onclick="ntAcc()">Tất cả shop · ${base.length}</button>
     ${[...accs.entries()].sort((a,b)=>b[1].n-a[1].n).slice(0,40).map(([k,e])=>`<button class="btn btn-sm${v.acc===k?" btn-p":""}" data-a="${esc(k)}" onclick="ntAcc(this.dataset.a)">${esc(e.name)} · ${e.n}</button>`).join("")}</div>`:""}
+  ${selN?`<div class="flex mb" id="ntSelBar" style="position:sticky;top:0;z-index:20;background:var(--panel);border:1px solid var(--accent);border-radius:10px;padding:8px 10px">
+    <b>Đã chọn ${selN} dòng</b>
+    <button class="btn btn-p btn-sm" onclick="ntMarkSel()">${done?"↩ Bỏ đánh dấu":"✓ Đã up sàn"} (${selN})</button>
+    <button class="btn btn-sm" onclick="ntCopySel()" title="Copy các dòng đã chọn: Order ID, tracking, hãng — dán thẳng vào Excel / Google Sheet">📋 Copy Order ID + tracking (${selN})</button>
+    <button class="btn btn-sm" onclick="ntTickAll(false)">Bỏ chọn</button></div>`
+  : (canN?`<p class="small muted" style="margin:0 0 8px">Mẹo: bấm vào mã để copy${seller&&!done?" — copy tracking xong dòng đó tự được tích":""}. Tích nhiều dòng (giữ Shift để tích cả một dải) rồi bấm «${done?"Bỏ đánh dấu":"Đã up sàn"}» một lần.</p>`:"")}
   ${rows.length?`<div class="card"><div class="tw"><table class="otbl">
-    <tr><th title="Hạn = Deadline ship nếu đã điền; chưa điền thì = ngày order + ${TRK_DL_DAYS} ngày">Hạn</th><th>Order ID</th><th>Tracking</th><th>Hãng</th><th>Sản phẩm</th><th>TK bán</th>${mine?"":"<th>Seller</th>"}<th>${done?"Đã up lúc":"Có tracking"}</th><th></th></tr>
-    ${NT_CUR.map((x,i)=>`<tr>
+    <tr><th style="width:28px">${canN?`<input type="checkbox" style="width:auto" title="Chọn / bỏ chọn mọi dòng đang hiện" ${allSel?"checked":""} onclick="ntTickAll(this.checked)">`:""}</th><th title="Hạn = Deadline ship nếu đã điền; chưa điền thì = ngày order + ${TRK_DL_DAYS} ngày">Hạn</th><th>Ngày order</th><th>Order ID</th><th>Tracking</th><th>Hãng</th><th>Sản phẩm</th><th>TK bán</th>${mine?"":"<th>Seller</th>"}<th>${done?"Đã up lúc":"Có tracking"}</th><th></th></tr>
+    ${NT_CUR.map((x,i)=>`<tr${NT_SEL.has(x.k)?' style="background:var(--bluebg)"':""}>
+      <td>${canOf(x)?`<input type="checkbox" style="width:auto" ${NT_SEL.has(x.k)?"checked":""} onclick="ntTick(${i},this.checked,event)">`:""}</td>
       <td class="small ${x.sla&&!done?x.sla.cls:""}" style="white-space:nowrap">${x.sla&&!done?x.sla.txt:'<span class="muted">—</span>'}</td>
+      <td class="small" style="white-space:nowrap">${esc(String(x.o.order_date||"").slice(5,10))}</td>
       <td style="white-space:nowrap">${cp(String(x.o.platform_order_id||""))} <a href="#" class="small muted" title="Mở đơn trong tool" onclick="openOrder('${x.o.id}');return false">↗</a></td>
-      <td style="white-space:nowrap">${cp(x.trk)}${x.prev?` <span class="badge b-yellow" title="Mã cũ: ${esc(x.prev)} — nếu đã up mã cũ lên sàn thì sửa lại bằng mã này">Mã đã đổi</span>`:""}</td>
+      <td style="white-space:nowrap">${cp(x.trk, i)}${x.prev?` <span class="badge b-yellow" title="Mã cũ: ${esc(x.prev)} — nếu đã up mã cũ lên sàn thì sửa lại bằng mã này">Mã đã đổi</span>`:""}</td>
       <td class="small" style="white-space:nowrap">${carCell(x)}</td>
       <td class="small"><span class="clip" style="max-width:260px" title="${esc(_ntLabel(x))}">${esc(_ntLabel(x))}</span>${x.its.length>1?` <span class="badge b-gray">${x.its.length} SP</span>`:""}</td>
       <td class="small">${esc(_ntAccName(x.o))}</td>
@@ -3824,8 +3856,35 @@ function ntMine(){ NT_VIEW.mine = !_ntMineOn(); if(NT_VIEW.mine) NT_VIEW.seller=
 function ntReset(){ Object.assign(NT_VIEW, { flt:"", acc:null, seller:"", q:"" }); renderNewTrk(); }
 function ntQ(el){ NT_VIEW.q=el.value; clearTimeout(window._ntQT);
   window._ntQT=setTimeout(()=>{ renderNewTrk(); const e=document.getElementById("ntQ"); if(e){ e.focus(); try{ e.setSelectionRange(e.value.length, e.value.length); }catch(_){} } }, 300); }
-function ntCopy(el){ const t=el && el.dataset ? el.dataset.c : ""; if(!t) return; copyText(t);
-  if(!NT_COPIED.has(t)){ NT_COPIED.add(t); try{ el.insertAdjacentHTML("beforeend", ' <span class="muted">✓</span>'); }catch(_){} } }
+function ntCopy(el){ const t=el && el.dataset ? el.dataset.c : ""; if(!t) return; copyText(t); NT_COPIED.add(t);
+  const i=el.dataset.i; const x=(i!=null && i!=="") ? NT_CUR[+i] : null;
+  /* seller copy tracking của 1 dòng = đang xử lý dòng đó -> tự tích sẵn (chỉ là tích chọn, chưa ghi gì) */
+  if(x && S.me.role==="seller" && NT_VIEW.tab!=="done" && canEditOrder(x.o)) NT_SEL.add(x.k);
+  if(S.view==="newtrk") renderNewTrk();
+}
+/* Tích 1 dòng; giữ Shift = tích / bỏ tích cả dải từ dòng vừa tích trước đó */
+function ntTick(i, on, ev){
+  const x=NT_CUR[i]; if(!x) return; const can=y=>isFFM() || canEditOrder(y.o);
+  const j=(ev && ev.shiftKey && NT_LAST) ? NT_CUR.findIndex(y=>y.k===NT_LAST) : -1;
+  const a=j>=0?Math.min(i,j):i, b=j>=0?Math.max(i,j):i;
+  for(let t=a;t<=b;t++){ const y=NT_CUR[t]; if(!y || !can(y)) continue; if(on) NT_SEL.add(y.k); else NT_SEL.delete(y.k); }
+  NT_LAST=x.k; renderNewTrk();
+}
+function ntTickAll(on){ NT_SEL.clear(); if(on) for(const y of NT_CUR) if(isFFM() || canEditOrder(y.o)) NT_SEL.add(y.k); NT_LAST=""; renderNewTrk(); }
+function _ntSelRows(){ return NT_CUR.filter(x=>NT_SEL.has(x.k) && (isFFM() || canEditOrder(x.o))); }
+function ntMarkSel(){
+  const xs=_ntSelRows(); if(!xs.length) return; const on=NT_VIEW.tab!=="done";
+  if(xs.length>1 && !confirm(on ? `Đánh dấu ĐÃ UP SÀN cho ${xs.length} dòng đã chọn?\n\nChỉ bấm khi đã up các mã này lên sàn. Bấm nhầm thì vào ô «Đã up hôm nay» để bỏ đánh dấu.`
+                                 : `Bỏ đánh dấu ${xs.length} dòng đã chọn?\n\nCác dòng này sẽ quay lại danh sách cần up.`)) return;
+  return _ntDo(xs, on);
+}
+function ntCopySel(){
+  const xs=_ntSelRows(); if(!xs.length) return;
+  const text=xs.map(x=>{ const c=ntCarrier((x.its.find(i=>String(i.carrier||"").trim())||{}).carrier, x.trk); return [String(x.o.platform_order_id||""), x.trk, c.show||""].join("\t"); }).join("\n");
+  copyText(text); xs.forEach(x=>NT_COPIED.add(String(x.trk)));
+  toast(`Đã copy ${xs.length} dòng (Order ID, tracking, hãng) — dán vào Excel / Google Sheet.`);
+  if(S.view==="newtrk") renderNewTrk();
+}
 /* Ghi / bỏ mốc «Đã up sàn» cho mọi SP của các dòng được chọn */
 async function _ntSet(groups, on){
   const ids=[]; for(const x of groups) for(const it of x.its) ids.push(it.id);
@@ -3848,12 +3907,6 @@ async function _ntDo(groups, on){
   finally{ NT_BUSY=false; }
 }
 function ntMark(i){ const x=NT_CUR[i]; if(!x) return; return _ntDo([x], NT_VIEW.tab!=="done"); }
-function ntMarkAll(){
-  if(NT_VIEW.tab==="done") return;
-  const xs=NT_CUR.filter(x=>isFFM() || canEditOrder(x.o)); if(!xs.length) return;
-  if(!confirm(`Đánh dấu ĐÃ UP SÀN cho ${xs.length} dòng đang hiện?\n\nChỉ bấm khi đã up hết các mã này lên sàn. Bấm nhầm thì vào ô «Đã up hôm nay» để bỏ đánh dấu từng dòng.`)) return;
-  return _ntDo(xs, true);
-}
 function ntExport(){
   const v=NT_VIEW, done=v.tab==="done";
   const isLate=x=>!!(x.sla && x.sla.hrs<0), isSoon=x=>!!(x.sla && x.sla.hrs>=0 && x.sla.hrs<48);
@@ -3862,9 +3915,9 @@ function ntExport(){
   if(!rows.length) return toast("Không có dòng nào.", true);
   const z=n=>String(n).padStart(2,"0"), dt=ts=>{ if(!ts) return ""; const d=new Date(ts); return `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}`; };
   xlsxDownload(`tracking-moi_${today()}.xlsx`,
-    ["TK bán","Order ID","Tracking","Hãng (xưởng ghi)","Hãng gợi ý theo dạng mã","Sản phẩm","Số SP","Seller","Ngày order","Hạn","Có tracking lúc","Mã cũ (nếu mã bị đổi)"],
+    ["TK bán","Order ID","Tracking","Hãng","Ô hãng xưởng ghi","Sản phẩm","Số SP","Seller","Ngày order","Hạn","Có tracking lúc","Mã cũ (nếu mã bị đổi)"],
     rows.map(x=>{ const c=ntCarrier((x.its.find(i=>String(i.carrier||"").trim())||{}).carrier, x.trk);
-      return [_ntAccName(x.o), String(x.o.platform_order_id||""), x.trk, c.carrier, c.guess, _ntLabel(x), x.its.length, sellerName(x.o), String(x.o.order_date||"").slice(0,10), (x.sla||{}).txt||"", dt(x.at), x.prev||""]; }), "Tracking moi");
+      return [_ntAccName(x.o), String(x.o.platform_order_id||""), x.trk, c.show, c.carrier, _ntLabel(x), x.its.length, sellerName(x.o), String(x.o.order_date||"").slice(0,10), (x.sla||{}).txt||"", dt(x.at), x.prev||""]; }), "Tracking moi");
   toast(`Đã xuất ${rows.length} dòng.`);
 }
 
@@ -4736,7 +4789,9 @@ async function gridSave(itemId){
     if(Object.keys(ip).length){ const {data,error}=await db.from("order_items").update(ip).eq("id",itemId).select().single(); if(error) throw error; Object.assign(it,data||ip); }
     if(ip.tracking_number !== undefined) await syncItemTracking(it, o);
     try{ document.querySelectorAll(`input[id$="_${itemId}"],select[id$="_${itemId}"]`).forEach(el=>{ el.classList.remove("okflash"); void el.offsetWidth; el.classList.add("okflash"); }); }catch(_){}
-    buildRows(); buildNav(); toast("Đã lưu.");
+    buildRows(); buildNav();
+    { const dup=ip.factory_order_id ? _poUsedElsewhere(it, maps.order[it.order_id]||o) : "";
+      toast(dup ? `Đã lưu — ⚠ Order FFM «${ip.factory_order_id}» đang được dùng ở đơn khác (Order ID ${dup}). Kiểm tra lại có dán nhầm không.` : "Đã lưu.", !!dup); }
   }catch(e){ fail(e); }
 }
 /* Sau khi sửa tracking của 1 SP: nếu khác tracking của SP khác trong cùng đơn -> TÁCH sang đơn riêng.
