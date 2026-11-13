@@ -212,7 +212,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v4.04</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v4.06</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -1229,6 +1229,21 @@ function itemLabel(it){
   return String(out).replace(/[·\s]+$/,"").trim() || "(chưa đặt tên SP)";
 }
 function t_none(it){ return it.product_title || it.template_code || ""; }
+/* Các bộ lọc đang bật NGOÀI ô tìm — để khi bảng trống thì nói rõ đang bị lọc kèm cái gì */
+function _otherFilters(){
+  const f=S.filters||{}, a=[];
+  if(f.seller) a.push("Seller "+f.seller);
+  if(f.team) a.push("Nhóm "+f.team);
+  if(f.factory) a.push("Xưởng "+((maps.factory[f.factory]||{}).name||"?"));
+  if(f.account) a.push("TK bán "+((maps.sellAcc[f.account]||{}).name||"?"));
+  if(f.trk) a.push("ô lọc tracking");
+  if(f.status) a.push("Trạng thái "+(STATUS_VI[f.status]||f.status));
+  if(f.multi) a.push("Đơn nhiều SP");
+  if(f.special) a.push("ô trạng thái đang chọn");
+  if(f.batch && f.batch.size) a.push("danh sách mã đã dán");
+  return a;
+}
+function clearOtherFilters(){ Object.assign(S.filters, { seller:"", team:"", trk:"", factory:"", status:"", multi:false, special:"", account:"", batch:null }); S.page=1; renderOrders(); }
 function filteredRows(){
   const f = S.filters, q = f.q.trim().toLowerCase();
   return S.rows.filter(r=>{
@@ -1255,7 +1270,11 @@ function filteredRows(){
     if(q){
       const hay = [o.platform_order_id, o.customer_name, o.customer_address, o.seller_note, o.buyer_note,
         o.tracking_number, it?.tracking_number, it?.color, it?.size, it?.factory_order_id, it?.product_title,
-        it?.product_type, it?.template_code, sellerName(o)].map(x=>String(x||"").toLowerCase()).join(" | ");
+        it?.product_type, it?.template_code, sellerName(o),
+        /* các chữ đang HIỆN trên bảng cũng phải tìm được: tên xưởng, tên sản phẩm (kể cả lấy từ Template), SKU, TK bán */
+        (it && it.factory_id && maps.factory[it.factory_id]) ? maps.factory[it.factory_id].name : "",
+        it ? itemLabel(it) : "", it?.sku_phoi,
+        (o.selling_account_id && maps.sellAcc[o.selling_account_id]) ? maps.sellAcc[o.selling_account_id].name : ""].map(x=>String(x||"").toLowerCase()).join(" | ");
       if(!hay.includes(q)) return false;
     }
     return true;
@@ -1433,7 +1452,7 @@ function renderOrders(){
     <button class="btn btn-sm" onclick="${S.fullLoaded?"quickMode()":"loadFullHistory()"}">${S.fullLoaded?"⚡ Về chế độ nhanh":"📜 Tải toàn bộ lịch sử"}</button></div></div>
   ${S.showNew?`<div class="card mb" style="border:2px solid #0284c7"><div class="spread mb"><div><h3 style="margin:0">＋ Thêm đơn mới</h3><span class="small muted">Nhập ở đây · <b>Ctrl+D</b> chép ô trên xuống · dán cả cột từ Excel bằng <b>Ctrl+V</b> · copy từ danh sách dưới nếu cần</span></div><div class="flex"><button class="btn" onclick="importTTS()">📥 Nạp Excel TTS</button><button class="btn" onclick="pasteImport()">📋 Dán tay</button><button class="btn" onclick="ncMenu()">⚙ Cột nhập</button><button class="btn btn-p" onclick="saveNewRows()">💾 Lưu tất cả</button><button class="btn btn-sm" onclick="toggleNewPanel()">Thu gọn ▲</button></div></div>${newSheetHTML()}</div>`:""}
   <div class="card mb"><div class="flex">
-    <input id="fQ" placeholder="🔍 Order ID / khách / note / color / tracking..." style="flex:1;min-width:220px" value="${esc(f.q)}">
+    <input id="fQ" placeholder="🔍 Order ID / khách / sản phẩm / xưởng / TK bán / tracking..." style="flex:1;min-width:220px" value="${esc(f.q)}">
     ${f.q?`<button class="btn btn-sm" onclick="S.filters.q='';S.page=1;renderOrders()" title="Xoá ô tìm kiếm">✕</button>`:""}
     ${(f.q && !S.fullLoaded)?`<button class="btn btn-sm" onclick="searchOldOrders()" title="Tìm cả trong đơn cũ đã đóng sổ (không cần tải toàn bộ)">🔎 Tìm đơn cũ</button>`:""}
     <input id="fSeller" list="dl_fseller" value="${esc(f.seller||'')}" placeholder="Tất cả seller" autocomplete="off" style="min-width:130px"><datalist id="dl_fseller">${sellers.map(s=>`<option value="${esc(s)}">`).join("")}</datalist>
@@ -1525,7 +1544,10 @@ function renderOrders(){
       <td class="oc-currency nowrap">${em&&it?`<select id="g_cost_currency_${it.id}" onchange="gridSave('${it.id}')" ${dF}><option ${it.cost_currency==="USD"?"selected":""}>USD</option><option ${it.cost_currency==="VND"?"selected":""}>VND</option></select>`:esc(it?.cost_currency||"")}</td>
       <td class="oc-img center">${(()=>{ const u=it&&(it.design_link||it.listing_link); if(!u) return ""; return `<span data-u="${esc(u)}" onmouseenter="imgHover(event,this.dataset.u)" onmouseleave="imgHoverOut()" onclick="event.stopPropagation();openImg(this.dataset.u)" title="Rê chuột để xem · bấm để phóng to" style="cursor:pointer;font-size:16px">🖼️</span>`; })()}</td>
       </tr>`;
-    }).join("") || `<tr><td colspan="35" class="muted">Không có dòng nào khớp bộ lọc.${(!S.fullLoaded && f.q)?` <button class="btn btn-sm btn-p" onclick="searchOldOrders()">🔎 Tìm trong đơn cũ / đã đóng sổ</button>`:""}</td></tr>`}
+    }).join("") || `<tr><td colspan="35" class="muted">Không có dòng nào khớp bộ lọc.${(()=>{ const a=_otherFilters(), b=periodBounds(); if(!a.length && !(b.from||b.to)) return "";
+        return ` Đang lọc kèm: <b>${esc([...a, ...((b.from||b.to)?["Kỳ "+(b.from||"…")+" → "+(b.to||"…")]:[])].join(" · "))}</b>.`
+          +(a.length?` <button class="btn btn-sm" onclick="clearOtherFilters()">Bỏ các lọc khác, giữ ô tìm</button>`:"")
+          +((b.from||b.to)?` <button class="btn btn-sm" onclick="setPeriod('all')">Xem mọi kỳ</button>`:""); })()}${(!S.fullLoaded && f.q)?` <button class="btn btn-sm btn-p" onclick="searchOldOrders()">🔎 Tìm trong đơn cũ / đã đóng sổ</button>`:""}</td></tr>`}
   </table></div>
   <div class="flex mt small muted" style="gap:18px;flex-wrap:wrap">
     <span>Tổng: <b>${new Set(rows.map(r=>r.o.id)).size}</b> đơn · <b>${rows.length}</b> dòng SP</span>
@@ -3705,6 +3727,7 @@ async function trkUndo(){
    Chưa chạy file SQL thì tab chỉ hiện dòng hướng dẫn, mọi phần khác của tool chạy như cũ. */
 const NT_VIEW = { tab:"todo", flt:"", acc:null, seller:"", mine:null, q:"", sort:"urgent" };
 let NT_CUR = [], NT_BUSY = false; const NT_COPIED = new Set();
+const NT_DONE_DAYS = 3;   /* ô «Đã up gần đây» giữ các dòng đã đánh dấu trong N ngày (tính cả hôm nay) để còn bỏ đánh dấu khi bấm nhầm */
 const NT_SEL = new Set(); let NT_LAST = "";   /* các dòng đang được tích (theo khoá dòng) + dòng vừa tích gần nhất (để Shift chọn dải) */
 const NT_TITLE = (typeof document!=="undefined" && document.title) || "RSA FFM";
 function ntReady(){ return /platform_synced_at/.test(S._selCols||"") || !!(S.items && S.items.length && ("platform_synced_at" in S.items[0])); }
@@ -3722,10 +3745,10 @@ function ntCarrier(carrier, trk){
   return { carrier:c, guess:g, known, show: known ? c : (g || c) };
 }
 /* 1 dòng = 1 đơn (Order ID + TK bán) + 1 mã vận đơn; các SP đi chung mã gom vào 1 dòng.
-   kind: "todo" = chưa up sàn · "done" = đã bấm «Đã up sàn» trong hôm nay */
+   kind: "todo" = chưa up sàn · "done" = đã bấm «Đã up sàn» trong NT_DONE_DAYS ngày gần đây (còn bỏ đánh dấu được) */
 function ntRows(kind){
   if(!ntReady()) return [];
-  const t0=new Date(); t0.setHours(0,0,0,0); const g=new Map();
+  const t0=new Date(); t0.setHours(0,0,0,0); t0.setDate(t0.getDate()-(NT_DONE_DAYS-1)); const g=new Map();
   for(const r of (S.rows||[])){ const it=r.it, o=r.o;
     if(!it || !o || !it.tracking_at || it.item_status==="cancelled") continue;
     if(trackKind(o,it)!=="ok") continue;
@@ -3811,7 +3834,7 @@ function renderNewTrk(){
     ${kpi(!done&&!v.flt, T.length, "Chưa up sàn", "", "Tracking FFM đã điền mà chưa được đánh dấu «Đã up sàn»", "ntTab('todo','')")}
     ${kpi(!done&&v.flt==="late", late, "🔴 Quá hạn", "red", "Đã qua hạn (ngày order + "+TRK_DL_DAYS+" ngày) mà chưa up lên sàn", "ntTab('todo','late')")}
     ${kpi(!done&&v.flt==="soon", soon, "🟠 Đến hạn trong 48h", "yellow", "Còn dưới 48 giờ tới hạn", "ntTab('todo','soon')")}
-    ${kpi(done, Dn.length, "✅ Đã up hôm nay", "green", "Các dòng đã bấm «Đã up sàn» trong hôm nay — vào đây để bỏ đánh dấu nếu bấm nhầm", "ntTab('done','')")}
+    ${kpi(done, Dn.length, "✅ Đã up "+NT_DONE_DAYS+" ngày gần đây", "green", "Các dòng đã bấm «Đã up sàn» trong "+NT_DONE_DAYS+" ngày gần đây — vào đây để bỏ đánh dấu nếu bấm nhầm", "ntTab('done','')")}
   </div>
   ${sum}
   <div class="flex mb">
@@ -3846,7 +3869,7 @@ function renderNewTrk(){
       <td style="white-space:nowrap">${canOf(x) ? (done?`<button class="btn btn-sm" onclick="ntMark(${i})" title="Bấm nhầm? Đưa dòng này về danh sách cần up">↩ Bỏ đánh dấu</button>`:`<button class="btn btn-p btn-sm" onclick="ntMark(${i})">✓ Đã up sàn</button>`) : `<span class="small muted">chỉ xem</span>`}</td></tr>`).join("")}
     </table></div>
     ${rows.length>MAXR?`<p class="small muted mt">Đang hiện ${MAXR}/${rows.length} dòng đầu — dùng ô tìm / nút shop để thu hẹp, hoặc Xuất Excel để lấy đủ.</p>`:""}</div>`
-  : `<div class="card">${anyF?"Không có dòng nào khớp bộ lọc.":done?"Hôm nay chưa đánh dấu dòng nào.":(mine?"Không còn tracking nào của bạn cần up lên sàn 🎉 <span class=\"small muted\">(tắt «Đơn của tôi» để xem các đơn khác bạn được quyền xem)</span>":"Không còn tracking nào chờ up lên sàn 🎉")}</div>`}`;
+  : `<div class="card">${anyF?"Không có dòng nào khớp bộ lọc.":done?"Chưa đánh dấu dòng nào trong "+NT_DONE_DAYS+" ngày gần đây.":(mine?"Không còn tracking nào của bạn cần up lên sàn 🎉 <span class=\"small muted\">(tắt «Đơn của tôi» để xem các đơn khác bạn được quyền xem)</span>":"Không còn tracking nào chờ up lên sàn 🎉")}</div>`}`;
   if(_fid==="ntQ"){ const e=document.getElementById("ntQ"); if(e){ e.focus(); try{ e.setSelectionRange(e.value.length, e.value.length); }catch(_){} } }
 }
 function ntTab(tab, flt){ NT_VIEW.tab=tab; NT_VIEW.flt=flt||""; renderNewTrk(); }
@@ -3874,7 +3897,7 @@ function ntTickAll(on){ NT_SEL.clear(); if(on) for(const y of NT_CUR) if(isFFM()
 function _ntSelRows(){ return NT_CUR.filter(x=>NT_SEL.has(x.k) && (isFFM() || canEditOrder(x.o))); }
 function ntMarkSel(){
   const xs=_ntSelRows(); if(!xs.length) return; const on=NT_VIEW.tab!=="done";
-  if(xs.length>1 && !confirm(on ? `Đánh dấu ĐÃ UP SÀN cho ${xs.length} dòng đã chọn?\n\nChỉ bấm khi đã up các mã này lên sàn. Bấm nhầm thì vào ô «Đã up hôm nay» để bỏ đánh dấu.`
+  if(xs.length>1 && !confirm(on ? `Đánh dấu ĐÃ UP SÀN cho ${xs.length} dòng đã chọn?\n\nChỉ bấm khi đã up các mã này lên sàn. Bấm nhầm thì vào ô «Đã up gần đây» để bỏ đánh dấu.`
                                  : `Bỏ đánh dấu ${xs.length} dòng đã chọn?\n\nCác dòng này sẽ quay lại danh sách cần up.`)) return;
   return _ntDo(xs, on);
 }
