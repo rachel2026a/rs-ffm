@@ -95,6 +95,13 @@ tr:hover td{background:var(--panel2)}
 .qtyhi{display:inline-block;background:#dc2626;color:#fff;font-weight:800;font-size:13px;line-height:1.35;padding:1px 8px;border-radius:6px;box-shadow:0 0 0 2px #fde047;white-space:nowrap}
 tr.qtyrow td{background:var(--yellowbg)!important}
 input.qtyin{border:2px solid #dc2626!important;color:#dc2626;font-weight:800}
+/* ĐƠN WALMART ĐI LABEL WM (thường là label xưởng) — bật sáng để FFM không bỏ sót file label */
+.lblwm{display:inline-block;background:#7c3aed;color:#fff;font-weight:800;font-size:11px;line-height:1.4;padding:1px 7px;border-radius:6px;box-shadow:0 0 0 2px #c4b5fd;white-space:nowrap}
+tr.lblwmrow td{background:var(--purplebg)}
+tr.lblwmrow td.oc-oid,tr.lblwmrow td:first-child{box-shadow:inset 4px 0 0 #7c3aed}
+/* dòng nhỏ dưới ô tracking: mã này của xưởng nào / của label WM */
+.trksrc{display:block;font-size:10.5px;line-height:1.2;color:var(--muted);margin-top:1px;white-space:nowrap}
+.trksrc.lbl{color:#7c3aed;font-weight:700}
 .orow.cancelled td.oc-oid a,.orow.cancelled td.oc-cust,.orow.cancelled td.oc-prod{text-decoration:line-through}
 /* tô nhóm cột cho dễ nhìn */
 .oc-cust{background:#f5faff}
@@ -216,7 +223,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v4.10</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v4.14</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -864,6 +871,15 @@ function buildAlerts(){
       if(x.soon) A.push({ lv:2, icon:"🟠", msg:`Xưởng ${nm}: ${x.soon} SP đến hạn ship trong 48h mà chưa có tracking`, view:"track", fac:k, flt:"soon", side:"ffm", sid:null, sname:"" });
       if(x.wait) A.push({ lv:2, icon:"⏳", msg:`Xưởng ${nm}: ${x.wait} SP đã đẩy từ ${TRK_WAIT_DAYS} ngày trở lên chưa có tracking (lâu nhất ${x.max} ngày)`, view:"track", fac:k, flt:"wait", side:"ffm", sid:null, sname:"" });
     } }
+  /* Đơn WM đi LABEL WM mà chưa đẩy xưởng: nhắc FFM gửi kèm file label (từng đơn — số này ít) */
+  for(const o of S.orders){ if(!isLabelWM(o)) continue;
+    const its=S.items.filter(i=>i.order_id===o.id && i.item_status!=="cancelled"); if(!its.length) continue;
+    if(its.some(i=>!i.pushed_at && !String(i.factory_order_id||"").trim() && !["ordered","in_production","has_tracking","synced","delivered","issue"].includes(i.item_status)))
+      A.push({ lv:3, icon:"🏷", msg:`Đơn ${o.platform_order_id} đi LABEL WALMART — khi đặt xưởng gửi kèm file label, không để xưởng dùng label của họ`, view:"orders", q:o.platform_order_id, side:"ffm", sid:o.seller_id, sname:sellerName(o) }); }
+  for(const o of S.orders){ if(!labelOdd(o)) continue;
+    const its=S.items.filter(i=>i.order_id===o.id && i.item_status!=="cancelled");
+    if(its.some(i=>!i.pushed_at && !String(i.factory_order_id||"").trim() && !["ordered","in_production","has_tracking","synced","delivered","issue"].includes(i.item_status)))
+      A.push({ lv:2, icon:"⚠", msg:`Đơn ${o.platform_order_id} (Walmart) ô Label ghi «${String(o.label_link||"").slice(0,30)}» — không rõ label xưởng hay label WM, hỏi seller trước khi đặt xưởng`, view:"orders", q:o.platform_order_id, side:"seller", sid:o.seller_id, sname:sellerName(o) }); }
   /* Chờ đẩy xưởng mà SỐ LƯỢNG ≥2: nhắc FFM đặt đủ số lượng (gộp 1 dòng) */
   { const big=S.rows.filter(r=>r.it && isReadyToPush(r.o,r.it) && qtyN(r.it)>=QTY_HI);
     if(big.length) A.push({ lv:2, icon:"🔢", msg:`${big.length} SP chờ đẩy xưởng có SỐ LƯỢNG từ 2 trở lên (${big.slice(0,4).map(r=>r.o.platform_order_id+" ×"+qtyN(r.it)).join(", ")}${big.length>4?"…":""}) — đặt xưởng đúng số lượng`, view:"push", side:"ffm", sid:null, sname:"" }); }
@@ -1172,6 +1188,7 @@ function renderTodo(){
   if(isFFM()){
     html += `<div class="card mb"><h3>🟢 MỤC FFM — chờ đẩy xưởng (${ready.length})</h3>
       ${(()=>{ const nb=ready.filter(r=>qtyN(r.it)>=QTY_HI).length; return nb?`<p class="small"><span class="qtyhi">${nb} SP số lượng ≥2</span> — đặt xưởng đúng số lượng</p>`:""; })()}
+      ${(()=>{ const nl=new Set(ready.filter(r=>isLabelWM(r.o)).map(r=>r.o.id)).size; return nl?`<p class="small">${LBLWM_BADGE} <b>${nl} đơn đi label Walmart</b> — gửi kèm file label khi đặt xưởng</p>`:""; })()}
       ${ready.length?`<button class="btn btn-p btn-sm mb" onclick="go('push')">Mở màn hình Đẩy xưởng →</button>`:`<p class="muted">Không có đơn nào chờ.</p>`}
     </div>`;
     { const nt=trkNeedRows(false).filter(teamF).map(_trkFlag); const nl=nt.filter(f=>f.late).length, ns=nt.filter(f=>f.soon).length, nw=nt.filter(f=>f.wait).length;
@@ -1258,6 +1275,25 @@ function qFilter(list, q, hayOf, phonesOf){
   let out=run(false); if(!out.length && qT.length>1) out=run(true); return out;
 }
 /* ===== SỐ LƯỢNG ≥2: bật sáng + cảnh báo FFM ===== */
+/* Đơn WALMART mà ô Label KHÔNG phải tên xưởng cũng KHÔNG phải link (vd «Standard: USPS», gõ sai tên xưởng) -> nhắc kiểm tra là label xưởng hay label WM */
+function _lev2(a,b){ if(Math.abs(a.length-b.length)>2) return 3; const d=[...Array(b.length+1).keys()];
+  for(let i=1;i<=a.length;i++){ let p=d[0]; d[0]=i; for(let j=1;j<=b.length;j++){ const t=d[j]; d[j]=Math.min(d[j]+1, d[j-1]+1, p+(a[i-1]===b[j-1]?0:1)); p=t; } } return d[b.length]; }
+function labelOdd(o){
+  if(!o || !/walmart/i.test(String(o.platform||""))) return false;
+  const v=String(o.label_link||"").trim(); if(!v || /^https?:\/\//i.test(v)) return false;
+  const n=_trkNorm(v); if(n.length<3) return true;
+  return !(S.factories||[]).some(f=>{ const fn=_trkNorm(f.name); return fn.length>=3 && (fn===n || fn.includes(n) || n.includes(fn) || (n.length>=6 && _lev2(n,fn)<=2)); });
+}
+const LBLODD_BADGE = `<span class="badge b-yellow" title="Ô Label của đơn Walmart này không phải tên xưởng cũng không phải link file label — kiểm tra đơn đi label xưởng hay label WM (nếu label WM thì dán link file vào ô Label)">⚠ label?</span>`;
+/* Đơn WALMART mà ô Label là LINK file label (bình thường WM đi label xưởng: ô Label ghi tên xưởng) */
+function isLabelWM(o){ return !!o && /walmart/i.test(String(o.platform||"")) && /^https?:\/\//i.test(String(o.label_link||"").trim()); }
+const LBLWM_BADGE = `<span class="lblwm" title="Đơn Walmart đi LABEL WALMART (không phải label xưởng) — khi đặt xưởng phải gửi kèm file label, dặn xưởng dùng đúng label này">🏷 LABEL WM</span>`;
+/* Dòng nhỏ dưới tracking cho biết mã đi theo xưởng nào (hoặc label WM) */
+function trkSrcTag(o, it){
+  try{ if(trackKind(o,it)!=="ok") return "";
+    if(isLabelWM(o)) return `<span class="trksrc lbl" title="Mã của label Walmart — xưởng phải in đúng label này">🏷 label WM</span>`;
+    const f=it && it.factory_id && maps.factory[it.factory_id]; return f ? `<span class="trksrc" title="Xưởng của sản phẩm này">🏭 ${esc(f.name)}</span>` : "";
+  }catch(_){ return ""; } }
 const QTY_HI = 2, QTY_ODD = 10;
 const qtyN = it => Math.max(1, Number(it && it.quantity) || 1);
 function qtyCell(q){ const n=Math.max(1, Number(q)||1); if(q==null || q==="") return ""; if(n<QTY_HI) return esc(String(q));
@@ -1303,7 +1339,7 @@ function filteredRows(){
     return true;
   });
   return qFilter(base, q, r=>{ const { o, it } = r;
-      return [o.platform_order_id, o.customer_name, o.customer_contact, o.customer_address, o.seller_note, o.buyer_note, it?.note,
+      return [o.platform_order_id, o.customer_name, o.customer_contact, o.customer_address, o.seller_note, o.buyer_note, it?.note, isLabelWM(o)?"label wm labelwm":"",
         o.tracking_number, it?.tracking_number, it?.color, it?.size, it?.factory_order_id, it?.product_title,
         it?.product_type, it?.template_code, sellerName(o),
         /* các chữ đang HIỆN trên bảng cũng phải tìm được: tên xưởng, tên sản phẩm (kể cả lấy từ Template), SKU, TK bán */
@@ -1541,14 +1577,14 @@ function renderOrders(){
     ${pageRows.map((r,_ri)=>{
       const { o, it } = r; const sla = slaInfo(it); const c = it?readyChecks(o,it):null;
       const em=S.editMode, dS=(canEditOrder(o)&&S.me.role!=="ffm")?"":"disabled", dF=isFFM()?"":"disabled", dT=(canEditOrder(o)||isFFM())?"":"disabled", stO=x=>Object.entries(STATUS_VI).map(([k,v])=>`<option value="${k}" ${x===k?"selected":""}>${v}</option>`).join("");
-      return `<tr onclick="rowOpen(event,'${o.id}','${it?it.id:''}')" class="orow${_grpCls[_ri]?(' '+_grpCls[_ri]):''}${it&&it.item_status==="cancelled"?' cancelled':''}${it&&it.item_status!=="cancelled"&&qtyN(it)>=QTY_HI?' qtyrow':''}">
+      return `<tr onclick="rowOpen(event,'${o.id}','${it?it.id:''}')" class="orow${_grpCls[_ri]?(' '+_grpCls[_ri]):''}${it&&it.item_status==="cancelled"?' cancelled':''}${it&&it.item_status!=="cancelled"&&qtyN(it)>=QTY_HI?' qtyrow':''}${isLabelWM(o)?' lblwmrow':''}">
       <td onclick="event.stopPropagation()" style="text-align:center">${it?`<input type="checkbox" class="rsel" data-id="${it.id}" ${S.sel&&S.sel.has(it.id)?"checked":""} onclick="toggleSel('${it.id}',this.checked)">`:""}</td>
       <td class="oc-date nowrap">${em&&it?`<input type="date" id="g_order_date_${it.id}" value="${o.order_date||''}" onchange="gridSave('${it.id}')" ${dS}>`:fmtD(o.order_date)}</td>
-      <td class="oc-oid nowrap">${em&&it?`<input id="g_platform_order_id_${it.id}" value="${esc(o.platform_order_id||'')}" onchange="gridSave('${it.id}')" ${dS} style="width:132px" title="Sửa Order ID — đây là mã đối soát với sàn, sửa cẩn thận">`:`<a href="#" onclick="openOrder('${o.id}');return false">${esc(o.platform_order_id)}</a>`} <span class="cpy" data-copy="${esc(o.platform_order_id)}" title="Copy Order ID" style="cursor:pointer">📋</span> <a href="#" onclick="openOrder('${o.id}');return false" title="Mở & sửa/cập nhật đơn" style="text-decoration:none">✏️</a>${r.multi?' <span class="badge b-purple" title="Đơn nhiều sản phẩm">⧉</span>':""}${S.dupOrders&&S.dupOrders.has(o.id)?' <span class="badge b-yellow" title="Trùng tên/địa chỉ khách với đơn khác">👥</span>':""}</td>
+      <td class="oc-oid nowrap">${em&&it?`<input id="g_platform_order_id_${it.id}" value="${esc(o.platform_order_id||'')}" onchange="gridSave('${it.id}')" ${dS} style="width:132px" title="Sửa Order ID — đây là mã đối soát với sàn, sửa cẩn thận">`:`<a href="#" onclick="openOrder('${o.id}');return false">${esc(o.platform_order_id)}</a>`} <span class="cpy" data-copy="${esc(o.platform_order_id)}" title="Copy Order ID" style="cursor:pointer">📋</span> <a href="#" onclick="openOrder('${o.id}');return false" title="Mở & sửa/cập nhật đơn" style="text-decoration:none">✏️</a>${isLabelWM(o)?" "+LBLWM_BADGE:""}${r.multi?' <span class="badge b-purple" title="Đơn nhiều sản phẩm">⧉</span>':""}${S.dupOrders&&S.dupOrders.has(o.id)?' <span class="badge b-yellow" title="Trùng tên/địa chỉ khách với đơn khác">👥</span>':""}</td>
       <td class="oc-acc nowrap">${em&&it?`<select id="g_selling_account_id_${it.id}" onchange="gridSave('${it.id}')" ${dS} style="max-width:130px"><option value="">—</option>${sellAccOptsHTML(o.selling_account_id)}</select>`:esc(o.selling_account_id && maps.sellAcc[o.selling_account_id]?.name || "")}</td>
       <td class="oc-seller nowrap">${esc(sellerName(o))}</td>
       <td class="oc-team nowrap">${esc(teamOf(o))}</td>
-      <td class="oc-label nowrap">${em&&it?`<input id="g_label_link_${it.id}" value="${esc(o.label_link||'')}" onchange="gridSave('${it.id}')" ${dS} style="width:110px">`:(o.label_link?`<a href="${esc(o.label_link)}" target="_blank" onclick="event.stopPropagation()">🔗</a>`:"")}</td>
+      <td class="oc-label nowrap">${em&&it?`<input id="g_label_link_${it.id}" value="${esc(o.label_link||'')}" onchange="gridSave('${it.id}')" ${dS} style="width:110px">`:(o.label_link?(/^https?:\/\//i.test(String(o.label_link).trim())?`<a href="${esc(o.label_link)}" target="_blank" onclick="event.stopPropagation()">🔗</a>${isLabelWM(o)?` <span class="lblwm">WM</span>`:""}`:`<span class="small muted" title="Label xưởng">${esc(o.label_link)}</span>${labelOdd(o)?" "+LBLODD_BADGE:""}`):"")}</td>
       <td class="oc-labelfee right nowrap">${em&&it?`<input type="number" step="0.01" id="g_label_fee_${it.id}" value="${o.label_fee??''}" onchange="gridSave('${it.id}')" ${dS} style="width:64px">`:(o.label_fee!=null?fmtUSD(o.label_fee):"")}</td>
       <td class="oc-cust">${em&&it?`<input id="g_customer_name_${it.id}" value="${esc(o.customer_name||'')}" onchange="gridSave('${it.id}')" ${dS} style="width:120px">`:`<span class="clip" style="max-width:130px;font-weight:500" title="${esc((o.customer_name||"")+" · "+(o.customer_address||""))}">${esc(o.customer_name||"")}</span>${it?` <span onclick="event.stopPropagation();copyCotik('${it.id}')" title="Copy Khách·SĐT·Địa chỉ cho Cotik" style="cursor:pointer">📋</span>`:""}${o.customer_address?`<div class="clip small muted" style="max-width:140px" title="${esc(o.customer_address)}">${esc(o.customer_address)}</div>`:""}`}</td>
       <td class="oc-prod">${em&&it?`<select id="g_template_id_${it.id}" onchange="gridTmpl('${it.id}')" ${dS} style="max-width:150px"><option value="">—</option>${S.templates.filter(t=>t.active!==false).map(t=>`<option value="${t.id}" ${it.template_id===t.id?"selected":""}>${esc((t.code?t.code+" · ":"")+t.name)}</option>`).join("")}</select>`:`<span class="clip" style="max-width:150px" title="${esc(it?.product_title||"")}">${esc(itemLabel(it))}</span>`}</td>
@@ -1566,7 +1602,7 @@ function renderOrders(){
       <td class="oc-itemnote nowrap">${em&&it?`<input id="g_note_${it.id}" value="${esc(it.note||'')}" onchange="gridSave('${it.id}')" ${dS} style="width:110px">`:`<span class="clip" style="max-width:120px" title="${esc(it?.note||"")}">${esc(it?.note||"")}</span>`}</td>
       <td class="oc-factory nowrap">${esc(it?.factory_id && maps.factory[it.factory_id]?.name || "")}</td>
       <td class="oc-offm nowrap small">${em&&it?`<input id="g_factory_order_id_${it.id}" value="${esc(it.factory_order_id||'')}" onchange="gridSave('${it.id}')" ${dF} style="width:100px">`:esc(it?.factory_order_id||"")}</td>
-      <td class="oc-track nowrap">${em&&it?`<input id="g_tracking_number_${it.id}" value="${esc(it.tracking_number||'')}" list="dl_trkopt" onchange="gridSave('${it.id}')" ${dT} style="width:120px">`:(()=>{const tk=it?.tracking_number||o.tracking_number||"";return tk?`<span class="clip" style="max-width:88px" title="${esc(tk)}">${esc(tk)}</span> <span class="cpy" data-copy="${esc(tk)}" title="Copy tracking" style="cursor:pointer">📋</span>`:"";})()}</td>
+      <td class="oc-track nowrap">${em&&it?`<input id="g_tracking_number_${it.id}" value="${esc(it.tracking_number||'')}" list="dl_trkopt" onchange="gridSave('${it.id}')" ${dT} style="width:120px">${trkSrcTag(o,it)}`:(()=>{const tk=it?.tracking_number||o.tracking_number||"";return tk?`<span class="clip" style="max-width:88px" title="${esc(tk)}">${esc(tk)}</span> <span class="cpy" data-copy="${esc(tk)}" title="Copy tracking" style="cursor:pointer">📋</span>${trkSrcTag(o,it)}`:"";})()}</td>
       <td class="oc-trackst nowrap">${em&&it?`<select id="g_tracking_status_${it.id}" onchange="gridSave('${it.id}')" ${dF}>${["none","in_transit","delivered","returned"].map(x=>`<option value="${x}" ${(it.tracking_status||'none')===x?"selected":""}>${x}</option>`).join("")}</select>`:esc(it?.tracking_status||"")}</td>
       <td class="oc-carrier nowrap">${em&&it?`<input id="g_carrier_${it.id}" value="${esc(it.carrier||'')}" onchange="gridSave('${it.id}')" ${dF} style="width:70px">`:esc(it?.carrier||"")}</td>
       <td class="oc-pushed nowrap">${em&&it?`<input type="date" id="g_pushed_at_${it.id}" value="${it.pushed_at||''}" onchange="gridSave('${it.id}')" ${dF}>`:(it&&it.pushed_at?fmtD(it.pushed_at):"")}</td>
@@ -1655,7 +1691,7 @@ const FORM_GET = {
   factory_name:(o,it)=>maps.factory[it?.factory_id]?.name, factory_order_id:(o,it)=>it?.factory_order_id,
   tracking:(o,it)=>it?.tracking_number||o.tracking_number, tracking_status:(o,it)=>it?.tracking_status, carrier:(o,it)=>it?.carrier,
   pushed_at:(o,it)=>fmtD(it?.pushed_at), deadline_ship:(o,it)=>fmtD(it?.deadline_ship),
-  cost:(o,it)=>it?.fulfillment_cost, currency:(o,it)=>it?.cost_currency, label_link:(o,it)=>o.label_link, label_fee:(o,it)=>o.label_fee,
+  cost:(o,it)=>it?.fulfillment_cost, currency:(o,it)=>it?.cost_currency, label_link:(o,it)=>{ const v=String(o.label_link||"").trim(); return (/walmart/i.test(String(o.platform||"")) && !/^https?:\/\//i.test(v)) ? "" : v; }, label_fee:(o,it)=>o.label_fee,
 };
 function fieldVal(k,o,it){ const g=FORM_GET[k]; if(!g) return ""; const v=g(o,it); return v==null?"":String(v); }
 const FORM_GUESS = [
@@ -1743,7 +1779,16 @@ function exportFactoryForm(fid){
   const rs = S.rows.filter(r=>r.it && ids.includes(r.it.id));
   if(!rs.length) return toast("Chưa chọn dòng nào.", true);
   const header = form.columns.map(c=>c.h);
-  const data = rs.map(r=>form.columns.map(c=>fieldVal(c.f, r.o, r.it)));
+  /* Đơn đi LABEL WALMART: báo trước khi xuất + ghi rõ trong file để xưởng in đúng label */
+  const lwm=[...new Map(rs.filter(r=>isLabelWM(r.o)).map(r=>[r.o.id,r.o])).values()];
+  const hasLbl=form.columns.some(c=>c.f==="label_link"), noteCol=form.columns.find(c=>c.f==="item_note"||c.f==="seller_note");
+  if(lwm.length && !confirm(`🏷 File này có ${lwm.length} ĐƠN ĐI LABEL WALMART:\n`+lwm.slice(0,15).map(o=>"• "+o.platform_order_id).join("\n")+(lwm.length>15?"\n…":"")
+      +`\n\n`+(hasLbl?`Cột «${form.columns.find(c=>c.f==="label_link").h}» trong file có link file label.`:`⚠ Form của xưởng này KHÔNG có cột Label — phải gửi file label cho xưởng riêng (mở ở màn Đẩy xưởng, bấm 🏷).`)
+      +(noteCol?` Cột «${noteCol.h}» được ghi thêm «LABEL WM».`:"")
+      +`\n\nKhi gửi xưởng: dặn in ĐÚNG file label này, không mua label khác.\nBấm OK để xuất file.`)) return;
+  const data = rs.map(r=>form.columns.map(c=>{ let v=fieldVal(c.f, r.o, r.it);
+    if(isLabelWM(r.o) && noteCol && c===noteCol) v="[LABEL WM - in đúng file label: "+String(r.o.label_link||"").trim()+"] "+v;
+    return v; }));
   const ws = XLSX.utils.aoa_to_sheet([header, ...data]);
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Orders");
   const fname = (maps.factory[fid]?.name || "xuong").replace(/[\\/:*?"<>|]/g,"_");
@@ -1775,7 +1820,7 @@ function fieldInfo(o,it,k){
   const M={
     date:["Ngày order",fmtD(o.order_date)], oid:["Order ID",o.platform_order_id],
     acc:["TK bán hàng",acc], seller:["Seller",sellerName(o)],
-    label:["Link Label (TTS)",o.label_link||""], labelfee:["Phí Label (USD)",o.label_fee!=null?String(o.label_fee):""],
+    label:[isLabelWM(o)?"Link Label (LABEL WM)":/walmart/i.test(String(o.platform||""))?"Label":"Link Label (TTS)",o.label_link||""], labelfee:["Phí Label (USD)",o.label_fee!=null?String(o.label_fee):""],
     cust:["Khách hàng",[o.customer_name,o.customer_contact,o.customer_address].filter(Boolean).join("\n")],
     prod:["Sản phẩm",it?(itemLabel(it)+(it.product_title?"\n"+it.product_title:"")):""],
     sku:["Phôi / SKU",(it&&it.sku_phoi)||""], link:["Link sản phẩm",(it&&it.listing_link)||""],
@@ -1805,13 +1850,13 @@ function cellPeek(oid,itemId,key){
 function vrow(label,val,wide){ return `<div${wide?' style="grid-column:1/-1"':''}><label>${label}</label><div style="min-height:19px;word-break:break-word;white-space:pre-wrap;font-size:13px">${val?esc(val):'<span class="muted">—</span>'}</div></div>`; }
 function vlink(label,val,wide){ return `<div${wide?' style="grid-column:1/-1"':''}><label>${label}</label><div style="word-break:break-all;font-size:13px">${val?`<a href="${esc(val)}" target="_blank" rel="noopener">${esc(val)}</a>`:'<span class="muted">—</span>'}</div></div>`; }
 function orderViewHTML(o){
-  return `<div class="card mb"><h3>🔵 Thông tin đơn & khách</h3><div class="fgrid">
+  return `${labelOdd(o)?`<div class="card mb" style="border:2px solid var(--yellow);background:var(--yellowbg)">${LBLODD_BADGE} Ô Label đang ghi «${esc(o.label_link)}» — không phải tên xưởng, cũng không phải link file label. Kiểm tra đơn đi <b>label xưởng</b> hay <b>label WM</b> (label WM thì dán link file vào ô Label).</div>`:""}${isLabelWM(o)?`<div class="card mb" style="border:2px solid #7c3aed;background:var(--purplebg)">${LBLWM_BADGE} <b>Đơn này đi LABEL WALMART</b> (không phải label xưởng). Khi đặt xưởng: <b>gửi kèm file label</b> ở ô Link Label, dặn xưởng in đúng label này — không để xưởng tự mua label.</div>`:""}<div class="card mb"><h3>🔵 Thông tin đơn & khách</h3><div class="fgrid">
     ${vrow("Ngày order",fmtD(o.order_date))}
     ${vrow("TK bán hàng",o.selling_account_id&&maps.sellAcc[o.selling_account_id]?maps.sellAcc[o.selling_account_id].name:"")}
     ${vrow("Khách — tên",o.customer_name)}
     ${vrow("SĐT",o.customer_contact)}
     ${vrow("Địa chỉ",o.customer_address,1)}
-    ${vlink("Link Label (TTS)",o.label_link,1)}
+    ${isLabelWM(o)?vlink("Link Label (LABEL WM)",o.label_link,1):/^https?:\/\//i.test(String(o.label_link||"").trim())?vlink("Link Label (TTS)",o.label_link,1):vrow(/walmart/i.test(String(o.platform||""))?"Label (label xưởng)":"Link Label (TTS)",o.label_link,1)}
     ${vrow("Label fee (USD)",o.label_fee!=null?String(o.label_fee):"")}
     ${vrow("Tracking (sàn)",o.tracking_number)}
     ${vrow("Seller note",o.seller_note,1)}
@@ -1848,7 +1893,7 @@ function openOrder(orderId, edit){
   const o = maps.order[orderId]; if(!o) return;
   const items = S.items.filter(i=>i.order_id===orderId).sort((a,b)=>(a.source_line||0)-(b.source_line||0));
   const ce = canEditOrder(o), cf = isFFM();
-  const head = `<div class="spread mb"><h2>Đơn ${esc(o.platform_order_id)} <span class="badge b-gray">${o.platform}</span></h2>
+  const head = `<div class="spread mb"><h2>Đơn ${esc(o.platform_order_id)} <span class="badge b-gray">${o.platform}</span>${isLabelWM(o)?" "+LBLWM_BADGE:""}</h2>
     <div class="flex">${edit?`<button class="btn btn-sm" onclick="openOrder('${orderId}')">👁 Xem</button>`:(ce?`<button class="btn btn-p btn-sm" onclick="openOrder('${orderId}',true)">✏️ Sửa đơn</button>`:"")}<button class="btn btn-sm" onclick="closeModal()">✕</button></div></div>
   <p class="sub">Seller: <b>${esc(sellerName(o))}</b> · tạo ${o.created_at?fmtD(String(o.created_at).slice(0,10)):"—"} · 🔵 = Seller nhập · 🟢 = FFM cập nhật</p>`;
   if(!edit){ openModal(head + orderViewHTML(o) + items.map((it,i)=>itemViewCard(o,it,i)).join("") + (ce?`<div class="flex mt"><button class="btn btn-p" onclick="openOrder('${orderId}',true)">✏️ Sửa đơn này</button><button class="btn" onclick="closeModal()">Đóng</button></div>`:`<div class="flex mt"><button class="btn btn-sm" onclick="claimCare('${o.id}')">🤝 Nhận hỗ trợ (sửa tạm 24h)</button><button class="btn" onclick="closeModal()">Đóng</button></div>`)); return; }
@@ -1863,7 +1908,7 @@ function openOrder(orderId, edit){
       <div><label>Khách — tên</label><input id="od_cname" value="${esc(o.customer_name||"")}" ${dis}></div>
       <div><label>SĐT</label><input id="od_ccontact" value="${esc(o.customer_contact||"")}" ${dis}></div>
       <div style="grid-column:1/-1"><label>Địa chỉ</label><input id="od_caddr" value="${esc(o.customer_address||"")}" ${dis}></div>
-      <div style="grid-column:1/-1"><label>Link Label (TTS)</label><input id="od_label" value="${esc(o.label_link||"")}" ${dis}></div>
+      <div style="grid-column:1/-1"><label>${/walmart/i.test(String(o.platform||""))?"Label — ghi tên xưởng nếu đi label xưởng, dán LINK file nếu đi label WM":"Link Label (TTS)"}</label><input id="od_label" value="${esc(o.label_link||"")}" ${dis}></div>
       <div><label>Label fee (USD)</label><input id="od_fee" type="number" step="0.01" value="${o.label_fee??""}" ${dis}></div>
       <div><label>Tracking (sàn)</label><input id="od_trk" value="${esc(o.tracking_number||"")}" ${dis}></div>
       <div style="grid-column:1/-1"><label>Seller note</label><input id="od_note" value="${esc(o.seller_note||"")}" ${dis}></div>
@@ -3471,7 +3516,9 @@ function trkMatch(){
         g.st="manual"; g.note="Đơn có sản phẩm ở nhiều xưởng — chọn 1 xưởng ở trên rồi tool dò lại"; continue; }
       g.st="new"; g.targets=pending; g.cur=_trkEff(pending[0]); }
     else if(same.length){ g.st="same"; g.cur=g.trk; }
-    else { g.st="conflict"; g.targets=diff; g.cur=[...new Set(diff.map(_trkEff))].join(" · "); }
+    else { g.st="conflict"; g.targets=diff; g.cur=[...new Set(diff.map(_trkEff))].join(" · ");
+      if(diff.some(it=>isLabelWM(maps.order[it.order_id]))){ g.st="manual"; g.targets=[];
+        g.note="Đơn đi LABEL WALMART — tracking trên sàn là mã của label WM, xưởng lại gửi mã khác: kiểm tra xưởng có in đúng label không. Tool không ghi đè."; } }
     /* Nguồn là API của 1 xưởng cụ thể mà SP trong tool lại đang gán xưởng khác -> để người dùng quyết */
     if(g.fac && (g.st==="new" || g.st==="conflict")){ const wrong=g.targets.filter(it=>it.factory_id && it.factory_id!==g.fac);
       if(wrong.length){ g.st="manual"; g.facShow=g.targets.slice();
@@ -3922,7 +3969,7 @@ function renderNewTrk(){
       <td class="small ${x.sla&&!done?x.sla.cls:""}" style="white-space:nowrap">${x.sla&&!done?x.sla.txt:'<span class="muted">—</span>'}</td>
       <td class="small" style="white-space:nowrap">${esc(String(x.o.order_date||"").slice(5,10))}</td>
       <td style="white-space:nowrap">${cp(String(x.o.platform_order_id||""))} <a href="#" class="small muted" title="Mở đơn trong tool" onclick="openOrder('${x.o.id}');return false">↗</a></td>
-      <td style="white-space:nowrap">${cp(x.trk, i)}${x.prev?` <span class="badge b-yellow" title="Mã cũ: ${esc(x.prev)} — nếu đã up mã cũ lên sàn thì sửa lại bằng mã này">Mã đã đổi</span>`:""}</td>
+      <td style="white-space:nowrap">${cp(x.trk, i)}${trkSrcTag(x.o, x.its[0])}${x.prev?` <span class="badge b-yellow" title="Mã cũ: ${esc(x.prev)} — nếu đã up mã cũ lên sàn thì sửa lại bằng mã này">Mã đã đổi</span>`:""}</td>
       <td class="small" style="white-space:nowrap">${carCell(x)}</td>
       <td class="small"><span class="clip" style="max-width:260px" title="${esc(_ntLabel(x))}">${esc(_ntLabel(x))}</span>${x.its.length>1?` <span class="badge b-gray">${x.its.length} SP</span>`:""}</td>
       <td class="small">${esc(_ntAccName(x.o))}</td>
@@ -4016,15 +4063,21 @@ function renderPush(){
   /* SP cùng đơn mà KHÔNG nằm trong danh sách chờ đẩy (chưa đủ điều kiện / chưa có ở đây) -> dễ đi thiếu */
   const _missOf = r => S.items.filter(i=>i.order_id===r.o.id && i.id!==r.it.id && i.item_status!=="cancelled" && !_readyIds.has(i.id) && !i.pushed_at && !String(i.factory_order_id||"").trim()).length;
   const _qtyRows = ready.filter(r=>qtyN(r.it)>=QTY_HI);
+  const _lwm = [...new Map(ready.filter(r=>isLabelWM(r.o)).map(r=>[r.o.id,r.o])).values()];
+  const _lodd = [...new Map(ready.filter(r=>labelOdd(r.o)).map(r=>[r.o.id,r.o])).values()];
   $("#view").innerHTML = `
   <h1>Đẩy xưởng</h1><p class="sub">Đơn đủ 3 điều kiện (Label ✅ Confirm Design ✅ Tracking ✅) — gộp theo xưởng thành batch, xuất CSV để đặt đơn & đối soát, rồi đánh dấu đã đẩy.</p>
+  ${_lwm.length?`<div class="card mb" style="border:2px solid #7c3aed;background:var(--purplebg)">${LBLWM_BADGE} <b>${_lwm.length} đơn đi LABEL WALMART</b> — khi đặt xưởng gửi kèm file label (bấm 🏷 để mở), dặn xưởng in đúng label, không tự mua label.
+    <div class="small" style="margin-top:6px">${_lwm.slice(0,30).map(o=>`${esc(o.platform_order_id)} <a href="${esc(o.label_link)}" target="_blank" title="Mở file label">🏷</a>`).join(" · ")}</div></div>`:""}
+  ${_lodd.length?`<div class="card mb" style="border:2px solid var(--yellow);background:var(--yellowbg)"><b>⚠ ${_lodd.length} đơn Walmart có ô Label lạ</b> (không phải tên xưởng, không phải link) — hỏi seller đơn đi label xưởng hay label WM trước khi đặt xưởng:
+    <div class="small" style="margin-top:6px">${_lodd.slice(0,20).map(o=>`${esc(o.platform_order_id)} «${esc(o.label_link)}»`).join(" · ")}</div></div>`:""}
   ${_qtyRows.length?`<div class="card mb" style="border:2px solid #dc2626;background:var(--redbg)"><b style="color:#dc2626">⚠ ${_qtyRows.length} sản phẩm có SỐ LƯỢNG từ 2 trở lên</b> — dòng tô vàng, ô SL đỏ. Khi đặt xưởng nhập đúng số lượng, đừng để mặc định 1.
     <div class="small" style="margin-top:6px">${_qtyRows.slice(0,30).map(r=>`${esc(r.o.platform_order_id)} <span class="qtyhi">×${qtyN(r.it)}</span>`).join(" · ")}${_qtyRows.length>30?" …":""}</div></div>`:""}
   ${Object.entries(byF).map(([fid, rs])=>{
     const fname = fid==="none" ? "⚠ Chưa gán xưởng" : (maps.factory[fid]?.name||"?");
     const bal = S.balances.find(b=>b.factory_id===fid);
     return `<div class="card mb"><div class="spread mb">
-      <h3>🏭 ${esc(fname)} — ${rs.length} SP${(()=>{ const tq=rs.reduce((n,r)=>n+qtyN(r.it),0); return tq>rs.length?` · <span style="color:#dc2626">tổng ${tq} cái</span>`:""; })()} ${bal?`· số dư <b class="${Number(bal.balance_usd)<0?"sla-red":"sla-green"}">${fmtUSD(bal.balance_usd)}</b>`:""}</h3>
+      <h3>🏭 ${esc(fname)} — ${rs.length} SP${(()=>{ const tq=rs.reduce((n,r)=>n+qtyN(r.it),0); return tq>rs.length?` · <span style="color:#dc2626">tổng ${tq} cái</span>`:""; })()}${(()=>{ const nl=new Set(rs.filter(r=>isLabelWM(r.o)).map(r=>r.o.id)).size; return nl?` · <span class="lblwm">🏷 ${nl} đơn label WM</span>`:""; })()} ${bal?`· số dư <b class="${Number(bal.balance_usd)<0?"sla-red":"sla-green"}">${fmtUSD(bal.balance_usd)}</b>`:""}</h3>
       <div class="flex">
         <button class="btn btn-sm" onclick="pushCsv('${fid}')" title="Xuất danh sách đã chọn ra Excel (.xlsx) — giữ nguyên Order ID / Tracking">⇩ Xuất batch (.xlsx)</button>
         ${fid!=="none"?`<button class="btn btn-sm" onclick="exportFactoryForm('${fid}')" title="Xuất .xlsx theo form của xưởng này">⇩ Form xưởng (.xlsx)</button>`:""}
@@ -4035,8 +4088,8 @@ function renderPush(){
       <th>Order ID</th><th>Seller</th><th>Sản phẩm</th><th>Size</th><th>Color</th><th>SL</th><th>Design</th><th>SLA</th></tr>
       ${rs.map(r=>{ const sla=slaInfo(r.it); const nIt=_nItOf.get(r.o.id)||1, miss=_missOf(r);
         const oth = nIt>1 ? S.items.filter(i=>i.order_id===r.o.id && i.item_status!=="cancelled" && (i.factory_id||"")!==(r.it.factory_id||"")).length : 0;
-        return `<tr${qtyN(r.it)>=QTY_HI?' class="qtyrow"':''}><td><input type="checkbox" class="pk_${fid}" value="${r.it.id}" checked style="width:auto"></td>
-        <td><a href="#" onclick="openOrder('${r.o.id}');return false">${esc(r.o.platform_order_id)}</a>${nIt>1?` <span class="badge b-red" title="Đơn này có ${nIt} sản phẩm${oth?` — ${nIt-oth} SP đặt ở xưởng này, ${oth} SP đặt ở xưởng khác`:` — đặt xưởng đủ cả ${nIt}`}">đơn ${nIt} SP${oth?` · ${oth} ở xưởng khác`:""}</span>`:""}${miss?` <span class="badge b-yellow" title="Còn ${miss} SP cùng đơn chưa đủ điều kiện đẩy — đẩy SP này trước là đơn đi thiếu">⚠ còn ${miss} SP chưa đủ ĐK</span>`:""}</td>
+        return `<tr class="${qtyN(r.it)>=QTY_HI?'qtyrow':''}${isLabelWM(r.o)?' lblwmrow':''}"><td><input type="checkbox" class="pk_${fid}" value="${r.it.id}" checked style="width:auto"></td>
+        <td><a href="#" onclick="openOrder('${r.o.id}');return false">${esc(r.o.platform_order_id)}</a>${isLabelWM(r.o)?` <a href="${esc(r.o.label_link)}" target="_blank" style="text-decoration:none">${LBLWM_BADGE}</a>`:""}${labelOdd(r.o)?` ${LBLODD_BADGE} <span class="small muted">«${esc(r.o.label_link)}»</span>`:""}${nIt>1?` <span class="badge b-red" title="Đơn này có ${nIt} sản phẩm${oth?` — ${nIt-oth} SP đặt ở xưởng này, ${oth} SP đặt ở xưởng khác`:` — đặt xưởng đủ cả ${nIt}`}">đơn ${nIt} SP${oth?` · ${oth} ở xưởng khác`:""}</span>`:""}${miss?` <span class="badge b-yellow" title="Còn ${miss} SP cùng đơn chưa đủ điều kiện đẩy — đẩy SP này trước là đơn đi thiếu">⚠ còn ${miss} SP chưa đủ ĐK</span>`:""}</td>
         <td>${esc(sellerName(r.o))}</td><td class="small"><span class="clip" style="max-width:240px">${esc(itemLabel(r.it))}</span></td>
         <td>${esc(r.it.size||"")}</td><td>${esc(r.it.color||"")}</td><td class="center">${qtyCell(r.it.quantity)}</td>
         <td class="center">${r.it.design_link?`<a href="${esc(r.it.design_link)}" target="_blank">🔗</a>`:""}</td>
@@ -4049,11 +4102,13 @@ function pushXlsx(fid){
   const rs = S.rows.filter(r=>r.it && ids.includes(r.it.id));
   if(!rs.length) return toast("Chưa chọn dòng nào.", true);
   const fname = fid==="none" ? "chua-gan-xuong" : (maps.factory[fid]?.name||"xuong");
+  { const lwm=[...new Set(rs.filter(r=>isLabelWM(r.o)).map(r=>r.o.platform_order_id))];
+    if(lwm.length) toast(`🏷 Batch có ${lwm.length} đơn đi LABEL WALMART (${lwm.slice(0,3).join(", ")}${lwm.length>3?"…":""}) — cột Note đã ghi rõ, nhớ gửi kèm file label cho xưởng.`); }
   xlsxDownload(`batch_${fname}_${today()}.xlsx`,
     ["Order ID","Customer Name","Phone","Address","Product","Product Type","Size","Color","Qty","Design Link","Dimension","Label","Tracking","Note"],
     rs.map(r=>[r.o.platform_order_id, r.o.customer_name||"", r.o.customer_contact||"", r.o.customer_address||"",
       r.it.product_title||itemLabel(r.it), r.it.product_type||"", r.it.size||"", r.it.color||"", r.it.quantity,
-      r.it.design_link||"", r.it.dimension||"", r.o.label_link||"", r.it.tracking_number||r.o.tracking_number||"", r.o.seller_note||""]));
+      r.it.design_link||"", r.it.dimension||"", r.o.label_link||"", r.it.tracking_number||r.o.tracking_number||"", (isLabelWM(r.o)?"[LABEL WM - dùng đúng file label] ":"")+(r.o.seller_note||"")]));
   toast(`Đã xuất batch ${rs.length} SP cho ${fname}.`);
 }
 const pushCsv = pushXlsx;   /* tên cũ, giữ để không vỡ chỗ gọi khác */
@@ -4063,7 +4118,8 @@ async function markPushed(fid){
   { const sel=S.rows.filter(r=>r.it && ids.includes(r.it.id)); const big=sel.filter(r=>qtyN(r.it)>=QTY_HI);
     const msg=`Đánh dấu ${ids.length} SP là ĐÃ ĐẨY XƯỞNG (trạng thái → Đã đẩy xưởng, ngày đẩy = hôm nay)?`
       +(big.length?`\n\n⚠ KIỂM TRA SỐ LƯỢNG — ${big.length} SP có SL từ 2 trở lên:\n`+big.slice(0,15).map(r=>`• ${r.o.platform_order_id} — ${itemLabel(r.it)}${r.it.size?" / "+r.it.size:""} ×${qtyN(r.it)}`).join("\n")+(big.length>15?"\n…":"")
-        +`\n\nChỉ bấm OK khi đã đặt xưởng ĐÚNG số lượng các SP này.`:"");
+        +`\n\nChỉ bấm OK khi đã đặt xưởng ĐÚNG số lượng các SP này.`:"")
+      +(()=>{ const lw=[...new Set(sel.filter(r=>isLabelWM(r.o)).map(r=>r.o.platform_order_id))]; return lw.length?`\n\n🏷 ${lw.length} ĐƠN ĐI LABEL WALMART — đã gửi kèm file label cho xưởng chưa?\n`+lw.slice(0,15).map(x=>"• "+x).join("\n"):""; })();
     if(!confirm(msg)) return; }
   const { error } = await db.from("order_items").update({ item_status:"ordered", pushed_at: today() }).in("id", ids);
   if(error) return fail(error);
