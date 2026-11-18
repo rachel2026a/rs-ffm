@@ -91,6 +91,10 @@ tr:hover td{background:var(--panel2)}
 .orow.grp-top td{border-top:2px solid #ef4444}
 .orow.grp-bot td{border-bottom:2px solid #ef4444}
 .orow.cancelled td{opacity:.55;background:var(--panel2)}
+/* SỐ LƯỢNG ≥2: bật sáng để FFM không đặt xưởng thiếu số lượng */
+.qtyhi{display:inline-block;background:#dc2626;color:#fff;font-weight:800;font-size:13px;line-height:1.35;padding:1px 8px;border-radius:6px;box-shadow:0 0 0 2px #fde047;white-space:nowrap}
+tr.qtyrow td{background:var(--yellowbg)!important}
+input.qtyin{border:2px solid #dc2626!important;color:#dc2626;font-weight:800}
 .orow.cancelled td.oc-oid a,.orow.cancelled td.oc-cust,.orow.cancelled td.oc-prod{text-decoration:line-through}
 /* tô nhóm cột cho dễ nhìn */
 .oc-cust{background:#f5faff}
@@ -212,7 +216,7 @@ th.oc-cust,th.oc-prod,th.oc-design,th.oc-factory{border-left:2px solid #c7d2de}
 <button id="burger">☰</button>
 <div id="appShell" hidden>
   <aside id="sidebar">
-    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v4.07</span></div></div>
+    <div class="logo"><div class="mark">R</div><div><b>RS FFM</b><span>Fulfillment POD · v4.10</span></div></div>
     <div id="nav"></div>
     <div class="foot">
       <div class="row"><span id="userChip" class="clip" style="max-width:130px"></span>
@@ -494,12 +498,15 @@ async function adoptOrder(id, checkScope){
    Chỉ kéo về đúng đơn khớp -> xem được đơn cũ mà không phải tải toàn bộ lịch sử. */
 async function searchOldOrders(){
   const q = String((S.filters&&S.filters.q)||"").trim().replace(/[,()"']/g," ").trim();
-  if(q.length < 3) return toast("Nhập ít nhất 3 ký tự (Order ID / tracking / tên khách).", true);
+  if(q.length < 3) return toast("Nhập ít nhất 3 ký tự (Order ID / tracking / tên khách / SĐT / địa chỉ).", true);
   const like = `%${q}%`;
+  const toks=q.split(/\s+/).filter(t=>t.length>=3).sort((a,b)=>b.length-a.length); const lt=(toks.length>1 && toks[0]) ? `%${toks[0]}%` : "";
+  const qd=_qPhone(q); const ph = qd ? "%"+qd.split("").join("%")+"%" : "";
   toast("Đang tìm trong đơn cũ…");
   try{
     const { data, error } = await db.from("orders").select("*, order_items(*)")
-      .or(`platform_order_id.ilike.${like},tracking_number.ilike.${like},customer_name.ilike.${like}`)
+      .or([`platform_order_id.ilike.${like}`,`tracking_number.ilike.${like}`,`customer_name.ilike.${like}`,`customer_contact.ilike.${like}`,`customer_address.ilike.${like}`,
+           ...(lt?[`customer_name.ilike.${lt}`,`customer_address.ilike.${lt}`]:[]), ...(ph?[`customer_contact.ilike.${ph}`]:[])].join(","))
       .limit(300);
     if(error) throw error;
     let added=0;
@@ -857,6 +864,9 @@ function buildAlerts(){
       if(x.soon) A.push({ lv:2, icon:"🟠", msg:`Xưởng ${nm}: ${x.soon} SP đến hạn ship trong 48h mà chưa có tracking`, view:"track", fac:k, flt:"soon", side:"ffm", sid:null, sname:"" });
       if(x.wait) A.push({ lv:2, icon:"⏳", msg:`Xưởng ${nm}: ${x.wait} SP đã đẩy từ ${TRK_WAIT_DAYS} ngày trở lên chưa có tracking (lâu nhất ${x.max} ngày)`, view:"track", fac:k, flt:"wait", side:"ffm", sid:null, sname:"" });
     } }
+  /* Chờ đẩy xưởng mà SỐ LƯỢNG ≥2: nhắc FFM đặt đủ số lượng (gộp 1 dòng) */
+  { const big=S.rows.filter(r=>r.it && isReadyToPush(r.o,r.it) && qtyN(r.it)>=QTY_HI);
+    if(big.length) A.push({ lv:2, icon:"🔢", msg:`${big.length} SP chờ đẩy xưởng có SỐ LƯỢNG từ 2 trở lên (${big.slice(0,4).map(r=>r.o.platform_order_id+" ×"+qtyN(r.it)).join(", ")}${big.length>4?"…":""}) — đặt xưởng đúng số lượng`, view:"push", side:"ffm", sid:null, sname:"" }); }
   /* Tracking FFM đã điền mà seller chưa up lên sàn: gom theo SELLER */
   { const g=new Map();
     for(const x of ntRows("todo")){ const sid=x.o.seller_id||""; const e=g.get(sid)||g.set(sid,{ n:0, late:0, o:x.o }).get(sid); e.n++; if(x.sla && x.sla.hrs<0) e.late++; }
@@ -1161,6 +1171,7 @@ function renderTodo(){
   }
   if(isFFM()){
     html += `<div class="card mb"><h3>🟢 MỤC FFM — chờ đẩy xưởng (${ready.length})</h3>
+      ${(()=>{ const nb=ready.filter(r=>qtyN(r.it)>=QTY_HI).length; return nb?`<p class="small"><span class="qtyhi">${nb} SP số lượng ≥2</span> — đặt xưởng đúng số lượng</p>`:""; })()}
       ${ready.length?`<button class="btn btn-p btn-sm mb" onclick="go('push')">Mở màn hình Đẩy xưởng →</button>`:`<p class="muted">Không có đơn nào chờ.</p>`}
     </div>`;
     { const nt=trkNeedRows(false).filter(teamF).map(_trkFlag); const nl=nt.filter(f=>f.late).length, ns=nt.filter(f=>f.soon).length, nw=nt.filter(f=>f.wait).length;
@@ -1229,6 +1240,28 @@ function itemLabel(it){
   return String(out).replace(/[·\s]+$/,"").trim() || "(chưa đặt tên SP)";
 }
 function t_none(it){ return it.product_title || it.template_code || ""; }
+/* ===== TÌM KIẾM: nhiều từ (mọi từ đều phải có, không cần đúng thứ tự) + SỐ ĐIỆN THOẠI bất kể cách viết ===== */
+function _qTokens(q){ return String(q||"").toLowerCase().trim().split(/\s+/).filter(Boolean); }
+/* Ô tìm chỉ gồm số và ký tự của SĐT (+ ( ) - . khoảng trắng), 7–11 chữ số -> tìm theo dãy số trong SĐT / địa chỉ */
+function _qPhone(q){ const s=String(q||"").trim(); if(!/^[\d\s+().\-]+$/.test(s)) return ""; const d=s.replace(/\D/g,""); return (d.length>=7 && d.length<=11) ? d : ""; }
+function _phoneHit(qd, vals){ if(!qd) return false; const alt=(qd.length===11 && qd[0]==="1") ? qd.slice(1) : "";
+  return (vals||[]).some(v=>{ const d=String(v||"").replace(/\D/g,""); return !!d && (d.includes(qd) || (!!alt && d.includes(alt))); }); }
+/* hay: chuỗi đã gộp + viết thường; phoneVals: các ô có thể chứa SĐT.
+   words=false: khớp NGUYÊN CỤM như trước (q phải nằm liền trong hay) · words=true: đủ mọi từ, không cần liền nhau */
+function textHit(q, qT, qD, hay, phoneVals, words){ if(qD && _phoneHit(qD, phoneVals)) return true;
+  if(!qT.length) return true; return words ? qT.every(t=>hay.includes(t)) : hay.includes(qT.join(" ")); }
+/* Lọc theo ô tìm: khớp nguyên cụm trước (giữ đúng kết quả như cũ); KHÔNG ra gì mà gõ nhiều từ -> mới tìm theo từng từ */
+function qFilter(list, q, hayOf, phonesOf){
+  const qq=String(q||"").trim().toLowerCase(); if(!qq) return list;
+  const qT=_qTokens(qq), qD=_qPhone(qq);
+  const run=words=>list.filter(x=>textHit(qq, qT, qD, hayOf(x), phonesOf?phonesOf(x):[], words));
+  let out=run(false); if(!out.length && qT.length>1) out=run(true); return out;
+}
+/* ===== SỐ LƯỢNG ≥2: bật sáng + cảnh báo FFM ===== */
+const QTY_HI = 2, QTY_ODD = 10;
+const qtyN = it => Math.max(1, Number(it && it.quantity) || 1);
+function qtyCell(q){ const n=Math.max(1, Number(q)||1); if(q==null || q==="") return ""; if(n<QTY_HI) return esc(String(q));
+  return `<span class="qtyhi" title="${n>=QTY_ODD?"Số lượng lớn bất thường — hỏi lại seller trước khi đặt xưởng":"Số lượng "+n+" — đặt xưởng đủ "+n+" cái"}">×${n}${n>=QTY_ODD?" ⚠":""}</span>`; }
 /* Các bộ lọc đang bật NGOÀI ô tìm — để khi bảng trống thì nói rõ đang bị lọc kèm cái gì */
 function _otherFilters(){
   const f=S.filters||{}, a=[];
@@ -1246,7 +1279,7 @@ function _otherFilters(){
 function clearOtherFilters(){ Object.assign(S.filters, { seller:"", team:"", trk:"", factory:"", status:"", multi:false, special:"", account:"", batch:null }); S.page=1; renderOrders(); }
 function filteredRows(){
   const f = S.filters, q = f.q.trim().toLowerCase();
-  return S.rows.filter(r=>{
+  const base = S.rows.filter(r=>{
     const { o, it } = r;
     if(f.seller && sellerName(o)!==f.seller) return false;
     if(f.team && teamOf(o)!==f.team) return false;
@@ -1267,18 +1300,17 @@ function filteredRows(){
     if(f.batch && f.batch.size){ const oid=(o.platform_order_id||"").toLowerCase();
       const hit = f.batch.has(oid) || f.batch.has((o.tracking_number||"").toLowerCase()) || f.batch.has((it?.tracking_number||"").toLowerCase()) || f.batch.has((it?.factory_order_id||"").toLowerCase());
       if(!hit) return false; }
-    if(q){
-      const hay = [o.platform_order_id, o.customer_name, o.customer_address, o.seller_note, o.buyer_note,
+    return true;
+  });
+  return qFilter(base, q, r=>{ const { o, it } = r;
+      return [o.platform_order_id, o.customer_name, o.customer_contact, o.customer_address, o.seller_note, o.buyer_note, it?.note,
         o.tracking_number, it?.tracking_number, it?.color, it?.size, it?.factory_order_id, it?.product_title,
         it?.product_type, it?.template_code, sellerName(o),
         /* các chữ đang HIỆN trên bảng cũng phải tìm được: tên xưởng, tên sản phẩm (kể cả lấy từ Template), SKU, TK bán */
         (it && it.factory_id && maps.factory[it.factory_id]) ? maps.factory[it.factory_id].name : "",
         it ? itemLabel(it) : "", it?.sku_phoi,
-        (o.selling_account_id && maps.sellAcc[o.selling_account_id]) ? maps.sellAcc[o.selling_account_id].name : ""].map(x=>String(x||"").toLowerCase()).join(" | ");
-      if(!hay.includes(q)) return false;
-    }
-    return true;
-  });
+        (o.selling_account_id && maps.sellAcc[o.selling_account_id]) ? maps.sellAcc[o.selling_account_id].name : ""].map(x=>String(x||"").toLowerCase()).join(" | "); },
+    r=>[r.o.customer_contact, r.o.customer_address, r.o.buyer_note]);
 }
 function goFilter(patch){
   S.filters = Object.assign({q:"",seller:"",team:"",trk:"",factory:"",status:"",multi:false,special:"",dateFrom:"",dateTo:"",account:"",sort:"created",sortDir:"desc",batch:null}, patch||{});
@@ -1452,7 +1484,7 @@ function renderOrders(){
     <button class="btn btn-sm" onclick="${S.fullLoaded?"quickMode()":"loadFullHistory()"}">${S.fullLoaded?"⚡ Về chế độ nhanh":"📜 Tải toàn bộ lịch sử"}</button></div></div>
   ${S.showNew?`<div class="card mb" style="border:2px solid #0284c7"><div class="spread mb"><div><h3 style="margin:0">＋ Thêm đơn mới</h3><span class="small muted">Nhập ở đây · <b>Ctrl+D</b> chép ô trên xuống · dán cả cột từ Excel bằng <b>Ctrl+V</b> · copy từ danh sách dưới nếu cần</span></div><div class="flex"><button class="btn" onclick="importTTS()">📥 Nạp Excel TTS</button><button class="btn" onclick="pasteImport()">📋 Dán tay</button><button class="btn" onclick="ncMenu()">⚙ Cột nhập</button><button class="btn btn-p" onclick="saveNewRows()">💾 Lưu tất cả</button><button class="btn btn-sm" onclick="toggleNewPanel()">Thu gọn ▲</button></div></div>${newSheetHTML()}</div>`:""}
   <div class="card mb"><div class="flex">
-    <input id="fQ" placeholder="🔍 Order ID / khách / sản phẩm / xưởng / TK bán / tracking..." style="flex:1;min-width:220px" value="${esc(f.q)}">
+    <input id="fQ" placeholder="🔍 Order ID / tên khách / SĐT / địa chỉ / sản phẩm / xưởng / tracking..." title="Gõ tên / SĐT / địa chỉ / Order ID… Nếu cả cụm không khớp đơn nào thì tool tự tìm theo từng từ (vd: tên + thành phố). SĐT gõ kiểu nào cũng được: 5551234567, (555) 123-4567, +1 555…" style="flex:1;min-width:220px" value="${esc(f.q)}">
     ${f.q?`<button class="btn btn-sm" onclick="S.filters.q='';S.page=1;renderOrders()" title="Xoá ô tìm kiếm">✕</button>`:""}
     ${(f.q && !S.fullLoaded)?`<button class="btn btn-sm" onclick="searchOldOrders()" title="Tìm cả trong đơn cũ đã đóng sổ (không cần tải toàn bộ)">🔎 Tìm đơn cũ</button>`:""}
     <input id="fSeller" list="dl_fseller" value="${esc(f.seller||'')}" placeholder="Tất cả seller" autocomplete="off" style="min-width:130px"><datalist id="dl_fseller">${sellers.map(s=>`<option value="${esc(s)}">`).join("")}</datalist>
@@ -1509,7 +1541,7 @@ function renderOrders(){
     ${pageRows.map((r,_ri)=>{
       const { o, it } = r; const sla = slaInfo(it); const c = it?readyChecks(o,it):null;
       const em=S.editMode, dS=(canEditOrder(o)&&S.me.role!=="ffm")?"":"disabled", dF=isFFM()?"":"disabled", dT=(canEditOrder(o)||isFFM())?"":"disabled", stO=x=>Object.entries(STATUS_VI).map(([k,v])=>`<option value="${k}" ${x===k?"selected":""}>${v}</option>`).join("");
-      return `<tr onclick="rowOpen(event,'${o.id}','${it?it.id:''}')" class="orow${_grpCls[_ri]?(' '+_grpCls[_ri]):''}${it&&it.item_status==="cancelled"?' cancelled':''}">
+      return `<tr onclick="rowOpen(event,'${o.id}','${it?it.id:''}')" class="orow${_grpCls[_ri]?(' '+_grpCls[_ri]):''}${it&&it.item_status==="cancelled"?' cancelled':''}${it&&it.item_status!=="cancelled"&&qtyN(it)>=QTY_HI?' qtyrow':''}">
       <td onclick="event.stopPropagation()" style="text-align:center">${it?`<input type="checkbox" class="rsel" data-id="${it.id}" ${S.sel&&S.sel.has(it.id)?"checked":""} onclick="toggleSel('${it.id}',this.checked)">`:""}</td>
       <td class="oc-date nowrap">${em&&it?`<input type="date" id="g_order_date_${it.id}" value="${o.order_date||''}" onchange="gridSave('${it.id}')" ${dS}>`:fmtD(o.order_date)}</td>
       <td class="oc-oid nowrap">${em&&it?`<input id="g_platform_order_id_${it.id}" value="${esc(o.platform_order_id||'')}" onchange="gridSave('${it.id}')" ${dS} style="width:132px" title="Sửa Order ID — đây là mã đối soát với sàn, sửa cẩn thận">`:`<a href="#" onclick="openOrder('${o.id}');return false">${esc(o.platform_order_id)}</a>`} <span class="cpy" data-copy="${esc(o.platform_order_id)}" title="Copy Order ID" style="cursor:pointer">📋</span> <a href="#" onclick="openOrder('${o.id}');return false" title="Mở & sửa/cập nhật đơn" style="text-decoration:none">✏️</a>${r.multi?' <span class="badge b-purple" title="Đơn nhiều sản phẩm">⧉</span>':""}${S.dupOrders&&S.dupOrders.has(o.id)?' <span class="badge b-yellow" title="Trùng tên/địa chỉ khách với đơn khác">👥</span>':""}</td>
@@ -1523,7 +1555,7 @@ function renderOrders(){
       <td class="oc-sku nowrap small">${em&&it?`<input id="g_sku_phoi_${it.id}" value="${esc(it.sku_phoi||'')}" onchange="gridSave('${it.id}')" ${dS} style="width:90px">`:(it?.sku_phoi?`<span class="clip" style="max-width:80px" title="${esc(it.sku_phoi)}">${esc(it.sku_phoi)}</span> <span class="cpy" data-copy="${esc(it.sku_phoi)}" title="Copy SKU" style="cursor:pointer">📋</span>`:"")}</td>
       <td class="oc-link nowrap">${em&&it?`<input id="g_listing_link_${it.id}" value="${esc(it.listing_link||'')}" onchange="gridSave('${it.id}')" ${dS} placeholder="link" style="width:100px">`:(it?.listing_link?`<a href="${esc(it.listing_link)}" target="_blank" title="${esc(it.listing_link)}">🔗</a> <span class="cpy" data-copy="${esc(it.listing_link)}" title="Copy link SP" style="cursor:pointer">📋</span>`:"")}</td>
       <td class="oc-linkb nowrap">${em&&it?`<input id="g_listing_link_back_${it.id}" value="${esc(it.listing_link_back||'')}" onchange="gridSave('${it.id}')" ${dS} placeholder="link sau" style="width:100px">`:(it?.listing_link_back?`<a href="${esc(it.listing_link_back)}" target="_blank" title="${esc(it.listing_link_back)}">🔗</a> <span class="cpy" data-copy="${esc(it.listing_link_back)}" title="Copy link SP mặt sau" style="cursor:pointer">📋</span>`:"")}</td>
-      <td class="oc-size nowrap">${em&&it?`<input id="g_size_${it.id}" value="${esc(it.size||'')}" onchange="gridSave('${it.id}')" ${dS} style="width:52px">`:`<span class="clip" style="max-width:70px" title="${esc(it?.size||"")}">${esc(it?.size||"")}</span>`}</td><td class="oc-color nowrap">${em&&it?`<input id="g_color_${it.id}" value="${esc(it.color||'')}" onchange="gridSave('${it.id}')" ${dS} style="width:64px">`:`<span class="clip" style="max-width:90px" title="${esc(it?.color||"")}">${esc(it?.color||"")}</span>`}</td><td class="oc-sl center">${em&&it?`<input type="number" min="1" id="g_quantity_${it.id}" value="${it.quantity||1}" onchange="gridSave('${it.id}')" ${dS} style="width:46px">`:(it?.quantity??"")}</td>
+      <td class="oc-size nowrap">${em&&it?`<input id="g_size_${it.id}" value="${esc(it.size||'')}" onchange="gridSave('${it.id}')" ${dS} style="width:52px">`:`<span class="clip" style="max-width:70px" title="${esc(it?.size||"")}">${esc(it?.size||"")}</span>`}</td><td class="oc-color nowrap">${em&&it?`<input id="g_color_${it.id}" value="${esc(it.color||'')}" onchange="gridSave('${it.id}')" ${dS} style="width:64px">`:`<span class="clip" style="max-width:90px" title="${esc(it?.color||"")}">${esc(it?.color||"")}</span>`}</td><td class="oc-sl center">${em&&it?`<input type="number" min="1" id="g_quantity_${it.id}" value="${it.quantity||1}" onchange="gridSave('${it.id}')" ${dS} style="width:46px"${qtyN(it)>=QTY_HI?' class="qtyin"':''}>`:(it?qtyCell(it.quantity):"")}</td>
       <td class="oc-ptype nowrap">${em&&it?`<input id="g_product_type_${it.id}" value="${esc(it.product_type||'')}" onchange="gridSave('${it.id}')" ${dS} style="width:100px">`:esc(it?.product_type||"")}</td>
       <td class="oc-dim nowrap">${em&&it?`<input id="g_dimension_${it.id}" value="${esc(it.dimension||'')}" onchange="gridSave('${it.id}')" ${dS} style="width:80px">`:esc(it?.dimension||"")}</td>
       <td class="oc-design center">${em&&it?`<input id="g_design_link_${it.id}" value="${esc(it.design_link||'')}" onchange="gridSave('${it.id}')" ${dS} placeholder="link" style="width:90px">`:(it?.design_link?`<a href="${esc(it.design_link)}" target="_blank">🔗</a>`:"")}</td>
@@ -2973,8 +3005,9 @@ function _trkBase(){
   if(v.age) base=base.filter(x=> x.f.w!=null && (v.age==="7" ? x.f.w<=7 : v.age==="30" ? x.f.w<=30 : x.f.w>30));
   if(v.seller) base=base.filter(x=>sellerName(x.r.o)===v.seller);
   const q=String(v.q||"").trim().toLowerCase();
-  if(q) base=base.filter(x=>{ const o=x.r.o, it=x.r.it;
-    return [o.platform_order_id, it.factory_order_id, sellerName(o), itemLabel(it), it.size, it.color, _trkEff(it)].some(t=>String(t||"").toLowerCase().includes(q)); });
+  if(q) base=qFilter(base, q, x=>{ const o=x.r.o, it=x.r.it;
+      return [o.platform_order_id, it.factory_order_id, sellerName(o), itemLabel(it), it.size, it.color, _trkEff(it), o.customer_name, o.customer_contact, o.customer_address].map(t=>String(t||"").toLowerCase()).join(" | "); },
+    x=>[x.r.o.customer_contact, x.r.o.customer_address]);
   return base;
 }
 function _trkSortFn(){
@@ -3042,7 +3075,7 @@ function trkRenderLists(){
   const dups = trkPoDups();
   ls.innerHTML = `
   <div class="flex mb">
-    <input id="trkQ" value="${esc(v.q||"")}" placeholder="🔎 Tìm Order ID / PO / seller / sản phẩm" style="min-width:250px" oninput="trkViewQ(this)">
+    <input id="trkQ" value="${esc(v.q||"")}" placeholder="🔎 Tìm Order ID / PO / khách / SĐT / sản phẩm" style="min-width:250px" oninput="trkViewQ(this)">
     <select title="Tính từ ngày đẩy xưởng (SP chưa có ngày đẩy thì tính từ ngày order)" onchange="TRK_VIEW.age=this.value;trkRenderLists()">
       ${opt("",v.age||"","Mọi thời gian")}${opt("7",v.age,"Đẩy trong 7 ngày gần đây")}${opt("30",v.age,"Đẩy trong 30 ngày gần đây")}${opt("old",v.age,"Cũ hơn 30 ngày")}</select>
     ${sellers.length>1 ? `<select title="Lọc theo seller đứng tên đơn" onchange="TRK_VIEW.seller=this.value;trkRenderLists()"><option value="">Tất cả seller</option>${sellers.map(x=>`<option value="${esc(x)}" ${v.seller===x?"selected":""}>${esc(x)}</option>`).join("")}</select>`:""}
@@ -3067,6 +3100,7 @@ function trkRenderLists(){
     <div class="spread mb"><b>${esc(_trkFacName(k))} — ${xs.length} SP</b>
       <span class="flex"><button class="btn btn-sm" onclick="trkChase('${k}')" title="Soạn sẵn tin nhắn xin tracking gửi xưởng (kèm danh sách mã, ưu tiên đơn sắp / quá hạn)">📨 Soạn tin nhắc xưởng</button>
       <button class="btn btn-sm" onclick="trkCopyKeys('${k}')" title="Copy danh sách Order ID để dán vào ô tìm kiếm trên web xưởng">📋 Copy Order ID</button>
+      ${xs.some(x=>{ const po=String(x.r.it.factory_order_id||"").trim(); return po && _trkKey(po)!==_trkKey(x.r.o.platform_order_id); })?`<button class="btn btn-sm" onclick="trkCopyKeys('${k}','po')" title="Copy Order FFM (mã riêng của xưởng này) — dùng khi web xưởng chỉ tìm được theo mã của họ. Dòng chưa có Order FFM thì lấy Order ID">📋 Copy Order FFM</button>`:""}
       <button class="btn btn-sm" onclick="trkExportNeed('${k}')" title="Xuất danh sách này ra Excel — có sẵn cột Tracking để trống: điền xong up ngược lại là khớp">⇩ Xuất danh sách (.xlsx)</button></span></div>
     <div class="tw"><table class="otbl">
       <tr><th title="Hạn phải có tracking: Deadline ship nếu đã điền; chưa điền thì = ngày order + ${TRK_DL_DAYS} ngày (lag time)">Hạn tracking</th><th>Chờ xưởng</th><th>Ngày đẩy</th><th>Ngày order</th><th>Order ID</th><th>PO (Order FFM)</th><th>Seller</th><th>Sản phẩm</th><th>Size</th><th>Màu</th><th>SL</th><th>Ô tracking hiện tại</th><th>Điền tracking</th></tr>
@@ -3079,7 +3113,7 @@ function trkRenderLists(){
         <td class="small">${f.nopo?'<span class="badge b-purple">chưa có PO</span>':esc(r.it.factory_order_id)}</td>
         <td class="small">${esc(sellerName(r.o))}</td>
         <td class="small"><span class="clip" style="max-width:220px">${esc(itemLabel(r.it))}</span></td>
-        <td>${esc(r.it.size||"")}</td><td>${esc(r.it.color||"")}</td><td class="center">${r.it.quantity??""}</td>
+        <td>${esc(r.it.size||"")}</td><td>${esc(r.it.color||"")}</td><td class="center">${qtyCell(r.it.quantity)}</td>
         <td class="small muted">${esc(cur)}</td>
         <td>${canE?`<input data-id="${r.it.id}" placeholder="dán mã vận đơn" style="width:180px" onchange="trkQuickSave(this)">`:""}</td></tr>`; }).join("")}
     </table></div>
@@ -3164,8 +3198,11 @@ function trkExportNeed(k){
       r.it.product_title||itemLabel(r.it), r.it.size||"", r.it.color||"", r.it.quantity??"", _trkEff(r.it), ""]), "Can lay track");
   toast(`Đã xuất ${rs.length} dòng của ${nm}.`);
 }
-async function trkCopyKeys(k){
-  const keys=[...new Set(_trkNeedOf(k).map(r=>String(r.o.platform_order_id||"").trim()||String(r.it.factory_order_id||"").trim()).filter(Boolean))];
+async function trkCopyKeys(k, kind){
+  /* kind "po": copy Order FFM (mã riêng của xưởng — mỗi xưởng một kiểu, do FFM điền / theo file xưởng); dòng chưa có PO thì lấy Order ID */
+  const keys=[...new Set(_trkNeedOf(k).map(r=> kind==="po"
+      ? (String(r.it.factory_order_id||"").trim()||String(r.o.platform_order_id||"").trim())
+      : (String(r.o.platform_order_id||"").trim()||String(r.it.factory_order_id||"").trim())).filter(Boolean))];
   if(!keys.length) return toast("Không có mã nào.", true);
   try{ await navigator.clipboard.writeText(keys.join("\n")); toast(`Đã copy ${keys.length} mã.`); }
   catch(e){ openModal(`<div class="spread mb"><h2>Danh sách mã</h2><button class="btn btn-sm" onclick="closeModal()">✕</button></div><textarea rows="12" style="width:100%;font-family:monospace;font-size:12px">${esc(keys.join("\n"))}</textarea>`); }
@@ -3810,7 +3847,8 @@ function _ntScope(kind){
   if(_ntMineOn()) rows=rows.filter(x=>x.o.seller_id===S.me.id);
   else if(v.seller) rows=rows.filter(x=>sellerName(x.o)===v.seller);
   const q=String(v.q||"").trim().toLowerCase();
-  if(q) rows=rows.filter(x=>[x.o.platform_order_id, x.trk, x.prev, sellerName(x.o), _ntAccName(x.o), _ntLabel(x)].some(t=>String(t||"").toLowerCase().includes(q)));
+  if(q) rows=qFilter(rows, q, x=>[x.o.platform_order_id, x.trk, x.prev, sellerName(x.o), _ntAccName(x.o), _ntLabel(x), x.o.customer_name, x.o.customer_contact, x.o.customer_address].map(t=>String(t||"").toLowerCase()).join(" | "),
+    x=>[x.o.customer_contact, x.o.customer_address]);
   return rows;
 }
 function renderNewTrk(){
@@ -3862,7 +3900,7 @@ function renderNewTrk(){
   </div>
   ${sum}
   <div class="flex mb">
-    <input id="ntQ" value="${esc(v.q||"")}" placeholder="🔎 Tìm Order ID / tracking / sản phẩm" style="min-width:240px" oninput="ntQ(this)">
+    <input id="ntQ" value="${esc(v.q||"")}" placeholder="🔎 Tìm Order ID / tracking / khách / SĐT" style="min-width:240px" oninput="ntQ(this)">
     ${seller?`<button class="btn btn-sm${mine?" btn-p":""}" title="Bật: chỉ đơn do bạn đứng tên. Tắt: xem cả các đơn bạn được quyền xem" onclick="ntMine()">👤 Đơn của tôi</button>`:""}
     ${!mine && sellers.length>1?`<select title="Lọc theo seller đứng tên đơn" onchange="ntSeller(this.value)"><option value="">Tất cả seller</option>${sellers.map(x=>`<option value="${esc(x)}" ${v.seller===x?"selected":""}>${esc(x)}</option>`).join("")}</select>`:""}
     ${rows.length?`<button class="btn btn-sm" onclick="ntExport()" title="Xuất các dòng đang hiện ra Excel: TK bán, Order ID, Tracking, Hãng…">⇩ Xuất Excel (${rows.length})</button>`:""}
@@ -3973,13 +4011,20 @@ function renderPush(){
   const ready = S.rows.filter(r=>isReadyToPush(r.o,r.it));
   const byF = {};
   for(const r of ready) (byF[r.it.factory_id||"none"] ||= []).push(r);
+  const _nItOf = new Map(); for(const it of S.items){ if(it.item_status!=="cancelled") _nItOf.set(it.order_id, (_nItOf.get(it.order_id)||0)+1); }
+  const _readyIds = new Set(ready.map(r=>r.it.id));
+  /* SP cùng đơn mà KHÔNG nằm trong danh sách chờ đẩy (chưa đủ điều kiện / chưa có ở đây) -> dễ đi thiếu */
+  const _missOf = r => S.items.filter(i=>i.order_id===r.o.id && i.id!==r.it.id && i.item_status!=="cancelled" && !_readyIds.has(i.id) && !i.pushed_at && !String(i.factory_order_id||"").trim()).length;
+  const _qtyRows = ready.filter(r=>qtyN(r.it)>=QTY_HI);
   $("#view").innerHTML = `
   <h1>Đẩy xưởng</h1><p class="sub">Đơn đủ 3 điều kiện (Label ✅ Confirm Design ✅ Tracking ✅) — gộp theo xưởng thành batch, xuất CSV để đặt đơn & đối soát, rồi đánh dấu đã đẩy.</p>
+  ${_qtyRows.length?`<div class="card mb" style="border:2px solid #dc2626;background:var(--redbg)"><b style="color:#dc2626">⚠ ${_qtyRows.length} sản phẩm có SỐ LƯỢNG từ 2 trở lên</b> — dòng tô vàng, ô SL đỏ. Khi đặt xưởng nhập đúng số lượng, đừng để mặc định 1.
+    <div class="small" style="margin-top:6px">${_qtyRows.slice(0,30).map(r=>`${esc(r.o.platform_order_id)} <span class="qtyhi">×${qtyN(r.it)}</span>`).join(" · ")}${_qtyRows.length>30?" …":""}</div></div>`:""}
   ${Object.entries(byF).map(([fid, rs])=>{
     const fname = fid==="none" ? "⚠ Chưa gán xưởng" : (maps.factory[fid]?.name||"?");
     const bal = S.balances.find(b=>b.factory_id===fid);
     return `<div class="card mb"><div class="spread mb">
-      <h3>🏭 ${esc(fname)} — ${rs.length} SP ${bal?`· số dư <b class="${Number(bal.balance_usd)<0?"sla-red":"sla-green"}">${fmtUSD(bal.balance_usd)}</b>`:""}</h3>
+      <h3>🏭 ${esc(fname)} — ${rs.length} SP${(()=>{ const tq=rs.reduce((n,r)=>n+qtyN(r.it),0); return tq>rs.length?` · <span style="color:#dc2626">tổng ${tq} cái</span>`:""; })()} ${bal?`· số dư <b class="${Number(bal.balance_usd)<0?"sla-red":"sla-green"}">${fmtUSD(bal.balance_usd)}</b>`:""}</h3>
       <div class="flex">
         <button class="btn btn-sm" onclick="pushCsv('${fid}')" title="Xuất danh sách đã chọn ra Excel (.xlsx) — giữ nguyên Order ID / Tracking">⇩ Xuất batch (.xlsx)</button>
         ${fid!=="none"?`<button class="btn btn-sm" onclick="exportFactoryForm('${fid}')" title="Xuất .xlsx theo form của xưởng này">⇩ Form xưởng (.xlsx)</button>`:""}
@@ -3988,11 +4033,12 @@ function renderPush(){
       <div class="tw" style="max-height:320px"><table>
       <tr><th><input type="checkbox" onchange="$$('.pk_${fid}').forEach(c=>c.checked=this.checked)" style="width:auto"></th>
       <th>Order ID</th><th>Seller</th><th>Sản phẩm</th><th>Size</th><th>Color</th><th>SL</th><th>Design</th><th>SLA</th></tr>
-      ${rs.map(r=>{ const sla=slaInfo(r.it);
-        return `<tr><td><input type="checkbox" class="pk_${fid}" value="${r.it.id}" checked style="width:auto"></td>
-        <td><a href="#" onclick="openOrder('${r.o.id}');return false">${esc(r.o.platform_order_id)}</a></td>
+      ${rs.map(r=>{ const sla=slaInfo(r.it); const nIt=_nItOf.get(r.o.id)||1, miss=_missOf(r);
+        const oth = nIt>1 ? S.items.filter(i=>i.order_id===r.o.id && i.item_status!=="cancelled" && (i.factory_id||"")!==(r.it.factory_id||"")).length : 0;
+        return `<tr${qtyN(r.it)>=QTY_HI?' class="qtyrow"':''}><td><input type="checkbox" class="pk_${fid}" value="${r.it.id}" checked style="width:auto"></td>
+        <td><a href="#" onclick="openOrder('${r.o.id}');return false">${esc(r.o.platform_order_id)}</a>${nIt>1?` <span class="badge b-red" title="Đơn này có ${nIt} sản phẩm${oth?` — ${nIt-oth} SP đặt ở xưởng này, ${oth} SP đặt ở xưởng khác`:` — đặt xưởng đủ cả ${nIt}`}">đơn ${nIt} SP${oth?` · ${oth} ở xưởng khác`:""}</span>`:""}${miss?` <span class="badge b-yellow" title="Còn ${miss} SP cùng đơn chưa đủ điều kiện đẩy — đẩy SP này trước là đơn đi thiếu">⚠ còn ${miss} SP chưa đủ ĐK</span>`:""}</td>
         <td>${esc(sellerName(r.o))}</td><td class="small"><span class="clip" style="max-width:240px">${esc(itemLabel(r.it))}</span></td>
-        <td>${esc(r.it.size||"")}</td><td>${esc(r.it.color||"")}</td><td class="center">${r.it.quantity}</td>
+        <td>${esc(r.it.size||"")}</td><td>${esc(r.it.color||"")}</td><td class="center">${qtyCell(r.it.quantity)}</td>
         <td class="center">${r.it.design_link?`<a href="${esc(r.it.design_link)}" target="_blank">🔗</a>`:""}</td>
         <td class="${sla?sla.cls:""}">${sla?sla.txt:""}</td></tr>`; }).join("")}
       </table></div></div>`;
@@ -4014,7 +4060,11 @@ const pushCsv = pushXlsx;   /* tên cũ, giữ để không vỡ chỗ gọi kh�
 async function markPushed(fid){
   const ids = $$(".pk_"+CSS.escape(fid)).filter(c=>c.checked).map(c=>c.value);
   if(!ids.length) return toast("Chưa chọn dòng nào.", true);
-  if(!confirm(`Đánh dấu ${ids.length} SP là ĐÃ ĐẨY XƯỞNG (trạng thái → Đã đẩy xưởng, ngày đẩy = hôm nay)?`)) return;
+  { const sel=S.rows.filter(r=>r.it && ids.includes(r.it.id)); const big=sel.filter(r=>qtyN(r.it)>=QTY_HI);
+    const msg=`Đánh dấu ${ids.length} SP là ĐÃ ĐẨY XƯỞNG (trạng thái → Đã đẩy xưởng, ngày đẩy = hôm nay)?`
+      +(big.length?`\n\n⚠ KIỂM TRA SỐ LƯỢNG — ${big.length} SP có SL từ 2 trở lên:\n`+big.slice(0,15).map(r=>`• ${r.o.platform_order_id} — ${itemLabel(r.it)}${r.it.size?" / "+r.it.size:""} ×${qtyN(r.it)}`).join("\n")+(big.length>15?"\n…":"")
+        +`\n\nChỉ bấm OK khi đã đặt xưởng ĐÚNG số lượng các SP này.`:"");
+    if(!confirm(msg)) return; }
   const { error } = await db.from("order_items").update({ item_status:"ordered", pushed_at: today() }).in("id", ids);
   if(error) return fail(error);
   S.items.forEach(it=>{ if(ids.includes(it.id)){ it.item_status="ordered"; it.pushed_at=today(); } });
